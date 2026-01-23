@@ -17,7 +17,7 @@ export const processAttendance = (faceEmbedding: number[]) => {
         }
     }
 
-    if (!bestMatch || bestScore < 0.6) {
+    if (!bestMatch || bestScore < 0.75) {
         return []; // ❌ unknown face
     }
 
