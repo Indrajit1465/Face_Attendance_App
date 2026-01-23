@@ -2,7 +2,7 @@ import { cosineSimilarity } from '../utils/cosineSimilarity';
 import { getAllEmployees } from '../database/employeeRepo';
 import { markAttendance } from '../database/attendanceRepo';
 
-const SIMILARITY_THRESHOLD = 0.65; // debug value
+const SIMILARITY_THRESHOLD = 0.75; // debug value
 
 export const processAttendanceLive = (
     embedding: number[],
