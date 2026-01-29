@@ -14,24 +14,47 @@ const RegisterEmployeeScreen = ({ route, navigation }: any) => {
 
     const [empId, setEmpId] = useState('');
     const [name, setName] = useState('');
+    const [saving, setSaving] = useState(false);
 
     // 🔒 Guard: embedding must exist
     if (!embedding) {
         return (
             <View style={styles.container}>
                 <Text style={styles.error}>
-                    No face data found.
+                    No face data found
                 </Text>
                 <Text style={styles.errorSub}>
                     Please capture a face before registration.
                 </Text>
+
+                <TouchableOpacity
+                    style={styles.button}
+                    onPress={() => navigation.navigate('Home')}
+                >
+                    <Text style={styles.buttonText}>Go Back</Text>
+                </TouchableOpacity>
             </View>
         );
     }
 
     const register = () => {
+        if (!empId.trim() || !name.trim()) {
+            Alert.alert(
+                'Invalid Input',
+                'Please enter both Employee ID and Name'
+            );
+            return;
+        }
+
         try {
-            insertEmployee(empId, name, embedding);
+            setSaving(true);
+
+            insertEmployee(
+                empId.trim(),
+                name.trim(),
+                embedding
+            );
+
             Alert.alert('Success', 'Employee registered successfully');
             navigation.navigate('Home');
         } catch (error: any) {
@@ -43,9 +66,10 @@ const RegisterEmployeeScreen = ({ route, navigation }: any) => {
             } else {
                 Alert.alert('Error', 'Failed to register employee');
             }
+        } finally {
+            setSaving(false);
         }
     };
-
 
     return (
         <View style={styles.container}>
@@ -57,6 +81,7 @@ const RegisterEmployeeScreen = ({ route, navigation }: any) => {
                 value={empId}
                 onChangeText={setEmpId}
                 style={styles.input}
+                autoCapitalize="characters"
             />
 
             <TextInput
@@ -67,8 +92,17 @@ const RegisterEmployeeScreen = ({ route, navigation }: any) => {
                 style={styles.input}
             />
 
-            <TouchableOpacity style={styles.button} onPress={register}>
-                <Text style={styles.buttonText}>Save</Text>
+            <TouchableOpacity
+                style={[
+                    styles.button,
+                    saving && { opacity: 0.6 },
+                ]}
+                onPress={register}
+                disabled={saving}
+            >
+                <Text style={styles.buttonText}>
+                    {saving ? 'Saving...' : 'Save'}
+                </Text>
             </TouchableOpacity>
         </View>
     );
@@ -98,10 +132,12 @@ const styles = StyleSheet.create({
         padding: 14,
         borderRadius: 8,
         alignItems: 'center',
+        marginTop: 10,
     },
     buttonText: {
         color: '#fff',
         fontSize: 16,
+        fontWeight: '600',
     },
     error: {
         color: '#ff5555',
@@ -113,6 +149,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
         textAlign: 'center',
         marginTop: 8,
+        marginBottom: 20,
     },
 });
 

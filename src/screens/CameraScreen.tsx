@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Camera, useCameraDevices } from 'react-native-vision-camera';
 import RNFS from 'react-native-fs';
+import { cropFaceFromImage } from '../utils/faceCropper';
 
 const CameraScreen = ({ navigation, route }: any) => {
     const camera = useRef<Camera>(null);
