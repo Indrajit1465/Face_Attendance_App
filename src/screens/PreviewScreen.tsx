@@ -1,29 +1,97 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
     View,
     Text,
     StyleSheet,
     Image,
     TouchableOpacity,
-    ActivityIndicator,
     Alert,
 } from 'react-native';
 import { getEmbedding } from '../services/faceRecognition';
 import { processAttendance } from '../services/attendanceService';
 
+// 🔧 Multi-frame registration settings
+const REQUIRED_SAMPLES = 8;
+const SAMPLE_DELAY_MS = 700;
+
 const PreviewScreen = ({ route, navigation }: any) => {
     const { imageUri, mode } = route.params;
 
-    const [loading, setLoading] = useState(false);
+    const [collecting, setCollecting] = useState(false);
+    const [sampleCount, setSampleCount] = useState(0);
+
+    // 🔒 Store multiple embeddings safely
+    const embeddingsRef = useRef<number[][]>([]);
+
+    // 🧮 Average embeddings utility
+    const averageEmbedding = (embeddings: number[][]): number[] => {
+        const length = embeddings[0].length;
+        const avg = new Array(length).fill(0);
+
+        for (const emb of embeddings) {
+            for (let i = 0; i < length; i++) {
+                avg[i] += emb[i];
+            }
+        }
+
+        for (let i = 0; i < length; i++) {
+            avg[i] /= embeddings.length;
+        }
+
+        return avg;
+    };
 
     const handleContinue = async () => {
         try {
-            setLoading(true);
-
-            // 🔑 IMPORTANT: use FACE-ONLY image
             const rawPath = imageUri.replace('file://', '');
 
-            // 1️⃣ Generate embedding
+            // ======================
+            // REGISTRATION MODE
+            // ======================
+            if (mode === 'register') {
+                if (collecting) return;
+
+                setCollecting(true);
+                embeddingsRef.current = [];
+                setSampleCount(0);
+
+                for (let i = 0; i < REQUIRED_SAMPLES; i++) {
+                    const embedding = await getEmbedding(rawPath);
+
+                    if (!embedding || embedding.length === 0) {
+                        Alert.alert('Error', 'Failed to capture face embedding');
+                        setCollecting(false);
+                        return;
+                    }
+
+                    embeddingsRef.current.push(embedding);
+                    setSampleCount(i + 1);
+
+                    // ⏱ Small delay between samples
+                    if (i < REQUIRED_SAMPLES - 1) {
+                        await new Promise<void>(resolve => {
+                            setTimeout(() => resolve(), SAMPLE_DELAY_MS);
+                        });
+                    }
+                }
+
+                // 🧠 Create strong averaged embedding
+                const finalEmbedding = averageEmbedding(
+                    embeddingsRef.current
+                );
+
+                setCollecting(false);
+
+                navigation.navigate('Register', {
+                    embedding: finalEmbedding,
+                });
+
+                return;
+            }
+
+            // ======================
+            // ATTENDANCE MODE
+            // ======================
             const embedding = await getEmbedding(rawPath);
 
             if (!embedding || embedding.length === 0) {
@@ -31,56 +99,57 @@ const PreviewScreen = ({ route, navigation }: any) => {
                 return;
             }
 
-            // 2️⃣ Decide based on mode
-            if (mode === 'register') {
-                // ➜ Go to register employee screen
-                navigation.navigate('Register', {
-                    embedding,
-                });
+            const matched = processAttendance(embedding);
+
+            if (matched.length === 0) {
+                Alert.alert('Unknown Face', 'Face not recognized');
             } else {
-                // ➜ Attendance flow
-                const matched = processAttendance(embedding);
-
-                if (matched.length === 0) {
-                    Alert.alert('Unknown Face', 'Face not recognized');
-                } else {
-                    Alert.alert(
-                        'Attendance',
-                        `${matched.join(', ')} attendance marked`
-                    );
-                }
-
-                navigation.navigate('Home');
+                Alert.alert(
+                    'Attendance',
+                    `${matched.join(', ')} attendance marked`
+                );
             }
+
+            navigation.navigate('Home');
         } catch (error) {
             console.error('Preview error:', error);
             Alert.alert('Error', 'Something went wrong');
-        } finally {
-            setLoading(false);
         }
     };
 
     return (
         <View style={styles.container}>
-            <Text style={styles.title}>Face Preview</Text>
+            <Text style={styles.title}>
+                {mode === 'register'
+                    ? 'Register Face'
+                    : 'Mark Attendance'}
+            </Text>
 
             <Image source={{ uri: imageUri }} style={styles.image} />
 
+            {/* 🔹 Progress UI (clean, text-based) */}
+            {mode === 'register' && collecting && (
+                <Text style={styles.progressText}>
+                    Capturing face data… {sampleCount} / {REQUIRED_SAMPLES}
+                </Text>
+            )}
+
             <TouchableOpacity
-                style={styles.button}
+                style={[
+                    styles.button,
+                    collecting && { opacity: 0.6 },
+                ]}
                 onPress={handleContinue}
-                disabled={loading}
+                disabled={collecting}
             >
                 <Text style={styles.buttonText}>
-                    {loading
-                        ? 'Processing...'
-                        : mode === 'register'
-                            ? 'Continue to Register'
-                            : 'Mark Attendance'}
+                    {mode === 'register'
+                        ? collecting
+                            ? 'Hold Still…'
+                            : 'Start Face Capture'
+                        : 'Mark Attendance'}
                 </Text>
             </TouchableOpacity>
-
-            {loading && <ActivityIndicator size="large" color="#2563eb" />}
         </View>
     );
 };
@@ -102,6 +171,12 @@ const styles = StyleSheet.create({
         width: '100%',
         borderRadius: 8,
         backgroundColor: '#111',
+    },
+    progressText: {
+        color: '#00ff99',
+        textAlign: 'center',
+        marginTop: 12,
+        fontSize: 14,
     },
     button: {
         marginTop: 16,
