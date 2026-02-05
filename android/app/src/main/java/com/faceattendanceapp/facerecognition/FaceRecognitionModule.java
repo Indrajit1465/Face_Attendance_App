@@ -5,6 +5,8 @@ import androidx.annotation.NonNull;
 import android.content.res.AssetFileDescriptor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
@@ -20,15 +22,30 @@ import java.io.IOException;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 
+/**
+ * FaceRecognitionModule
+ *
+ * ✔ Uses MobileFaceNet
+ * ✔ Accepts FACE-ONLY cropped image
+ * ✔ Pads to square (NO distortion)
+ * ✔ L2-normalized embeddings
+ * ✔ Stable for cosine similarity
+ */
 public class FaceRecognitionModule extends ReactContextBaseJavaModule {
+
+    private static final int INPUT_SIZE = 112;
+    private static final int EMBEDDING_SIZE = 192;
 
     private Interpreter interpreter;
 
     public FaceRecognitionModule(ReactApplicationContext reactContext) {
         super(reactContext);
-
         try {
-            interpreter = new Interpreter(loadModelFile("mobile_facenet.tflite"));
+            Interpreter.Options options = new Interpreter.Options();
+            options.setNumThreads(4);
+            options.setUseXNNPACK(true);
+
+            interpreter = new Interpreter(loadModelFile("mobile_facenet.tflite"), options);
         } catch (IOException e) {
             e.printStackTrace();
             interpreter = null;
@@ -48,13 +65,10 @@ public class FaceRecognitionModule extends ReactContextBaseJavaModule {
 
         FileChannel fileChannel = inputStream.getChannel();
 
-        long startOffset = fileDescriptor.getStartOffset();
-        long declaredLength = fileDescriptor.getDeclaredLength();
-
         return fileChannel.map(
                 FileChannel.MapMode.READ_ONLY,
-                startOffset,
-                declaredLength);
+                fileDescriptor.getStartOffset(),
+                fileDescriptor.getDeclaredLength());
     }
 
     @ReactMethod
@@ -71,12 +85,14 @@ public class FaceRecognitionModule extends ReactContextBaseJavaModule {
                 return;
             }
 
-            Bitmap resized = Bitmap.createScaledBitmap(bitmap, 112, 112, true);
+            // 🔑 Pad to square (CRITICAL)
+            Bitmap square = makeSquare(bitmap);
+            Bitmap resized = Bitmap.createScaledBitmap(square, INPUT_SIZE, INPUT_SIZE, true);
 
-            float[][][][] input = new float[1][112][112][3];
+            float[][][][] input = new float[1][INPUT_SIZE][INPUT_SIZE][3];
 
-            for (int y = 0; y < 112; y++) {
-                for (int x = 0; x < 112; x++) {
+            for (int y = 0; y < INPUT_SIZE; y++) {
+                for (int x = 0; x < INPUT_SIZE; x++) {
                     int px = resized.getPixel(x, y);
 
                     input[0][y][x][0] = ((px >> 16 & 0xff) - 127.5f) / 128f;
@@ -85,12 +101,23 @@ public class FaceRecognitionModule extends ReactContextBaseJavaModule {
                 }
             }
 
-            float[][] output = new float[1][192];
+            float[][] output = new float[1][EMBEDDING_SIZE];
             interpreter.run(input, output);
+
+            // 🔑 L2 normalize
+            float sum = 0f;
+            for (float v : output[0])
+                sum += v * v;
+
+            float norm = (float) Math.sqrt(sum);
+            if (norm < 1e-6) {
+                promise.reject("EMBEDDING_ERROR", "Invalid embedding norm");
+                return;
+            }
 
             WritableArray embedding = Arguments.createArray();
             for (float v : output[0]) {
-                embedding.pushDouble(v);
+                embedding.pushDouble(v / norm);
             }
 
             promise.resolve(embedding);
@@ -98,5 +125,22 @@ public class FaceRecognitionModule extends ReactContextBaseJavaModule {
         } catch (Exception e) {
             promise.reject("EMBEDDING_ERROR", e);
         }
+    }
+
+    // =========================
+    // Utility: pad bitmap to square
+    // =========================
+    private Bitmap makeSquare(Bitmap src) {
+        int size = Math.max(src.getWidth(), src.getHeight());
+        Bitmap output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+
+        Canvas canvas = new Canvas(output);
+        canvas.drawColor(Color.BLACK);
+
+        int left = (size - src.getWidth()) / 2;
+        int top = (size - src.getHeight()) / 2;
+
+        canvas.drawBitmap(src, left, top, null);
+        return output;
     }
 }

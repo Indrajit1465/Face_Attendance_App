@@ -2,49 +2,38 @@ import { cosineSimilarity } from '../utils/cosineSimilarity';
 import { getAllEmployees } from '../database/employeeRepo';
 import { markAttendance } from '../database/attendanceRepo';
 
-const SIMILARITY_THRESHOLD = 0.75;
+const SIMILARITY_THRESHOLD = 0.72;
+const MARGIN_THRESHOLD = 0.06;
 
 export const processAttendance = (faceEmbedding: number[]) => {
-    // 🔒 Guard: embedding must be valid
-    if (!faceEmbedding || faceEmbedding.length === 0) {
-        console.warn('[Attendance] Invalid embedding');
-        return [];
-    }
-
     const employees = getAllEmployees();
+    if (employees.length === 0) return [];
 
-    // 🔒 Guard: no registered employees
-    if (employees.length === 0) {
-        console.warn('[Attendance] No employees registered');
-        return [];
-    }
+    let best = { emp: null as any, score: 0 };
+    let second = { score: 0 };
 
-    let bestMatch: any = null;
-    let bestScore = 0;
-
-    // 1️⃣ Find best match
     for (const emp of employees) {
         const score = cosineSimilarity(faceEmbedding, emp.embedding);
-
-        if (score > bestScore) {
-            bestScore = score;
-            bestMatch = emp;
+        if (score > best.score) {
+            second = best;
+            best = { emp, score };
+        } else if (score > second.score) {
+            second = { score };
         }
     }
 
     console.log(
-        `[Attendance] Best score: ${bestScore.toFixed(3)}`
+        `[Attendance] Best: ${best.score.toFixed(3)}, Second: ${second.score.toFixed(3)}`
     );
 
-    // 2️⃣ Threshold check
-    if (!bestMatch || bestScore < SIMILARITY_THRESHOLD) {
-        console.warn('[Attendance] Face not recognized');
+    if (
+        best.score < SIMILARITY_THRESHOLD ||
+        best.score - second.score < MARGIN_THRESHOLD
+    ) {
+        console.warn('[Attendance] Face ambiguous, rejecting');
         return [];
     }
 
-    // 3️⃣ Mark attendance
-    markAttendance(bestMatch.emp_id, bestMatch.name);
-
-    // 4️⃣ Return matched employee name
-    return [bestMatch.name];
+    markAttendance(best.emp.emp_id, best.emp.name);
+    return [best.emp.name];
 };

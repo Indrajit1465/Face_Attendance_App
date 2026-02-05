@@ -1,11 +1,15 @@
+const normalize = (v: number[]) => {
+    const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+    return v.map(x => x / norm);
+};
+
 export const cosineSimilarity = (a: number[], b: number[]) => {
-    let dot = 0, normA = 0, normB = 0;
+    const na = normalize(a);
+    const nb = normalize(b);
 
-    for (let i = 0; i < a.length; i++) {
-        dot += a[i] * b[i];
-        normA += a[i] * a[i];
-        normB += b[i] * b[i];
+    let dot = 0;
+    for (let i = 0; i < na.length; i++) {
+        dot += na[i] * nb[i];
     }
-
-    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    return dot;
 };

@@ -9,10 +9,16 @@ import {
 } from 'react-native';
 import { getEmbedding } from '../services/faceRecognition';
 import { processAttendance } from '../services/attendanceService';
+import { averageEmbedding } from '../utils/averageEmbedding';
 
 // 🔧 Multi-frame registration settings
 const REQUIRED_SAMPLES = 8;
 const SAMPLE_DELAY_MS = 700;
+const MIN_VALID_SAMPLES = 5; // 🔑 critical
+
+// 🧮 embedding norm utility
+const embeddingNorm = (v: number[]) =>
+    Math.sqrt(v.reduce((s, x) => s + x * x, 0));
 
 const PreviewScreen = ({ route, navigation }: any) => {
     const { imageUri, mode } = route.params;
@@ -20,26 +26,8 @@ const PreviewScreen = ({ route, navigation }: any) => {
     const [collecting, setCollecting] = useState(false);
     const [sampleCount, setSampleCount] = useState(0);
 
-    // 🔒 Store multiple embeddings safely
+    // 🔒 Store embeddings safely
     const embeddingsRef = useRef<number[][]>([]);
-
-    // 🧮 Average embeddings utility
-    const averageEmbedding = (embeddings: number[][]): number[] => {
-        const length = embeddings[0].length;
-        const avg = new Array(length).fill(0);
-
-        for (const emb of embeddings) {
-            for (let i = 0; i < length; i++) {
-                avg[i] += emb[i];
-            }
-        }
-
-        for (let i = 0; i < length; i++) {
-            avg[i] /= embeddings.length;
-        }
-
-        return avg;
-    };
 
     const handleContinue = async () => {
         try {
@@ -59,23 +47,40 @@ const PreviewScreen = ({ route, navigation }: any) => {
                     const embedding = await getEmbedding(rawPath);
 
                     if (!embedding || embedding.length === 0) {
-                        Alert.alert('Error', 'Failed to capture face embedding');
-                        setCollecting(false);
-                        return;
+                        continue;
+                    }
+
+                    // 🔑 QUALITY CHECK
+                    const norm = embeddingNorm(embedding);
+
+                    // Accept only stable embeddings
+                    if (norm < 0.85 || norm > 1.15) {
+                        console.warn('[Register] Discarding weak embedding');
+                        continue;
                     }
 
                     embeddingsRef.current.push(embedding);
-                    setSampleCount(i + 1);
+                    setSampleCount(embeddingsRef.current.length);
 
-                    // ⏱ Small delay between samples
+                    // ⏱ Delay between samples
                     if (i < REQUIRED_SAMPLES - 1) {
-                        await new Promise<void>(resolve => {
-                            setTimeout(() => resolve(), SAMPLE_DELAY_MS);
-                        });
+                        await new Promise<void>(resolve =>
+                            setTimeout(resolve, SAMPLE_DELAY_MS)
+                        );
                     }
                 }
 
-                // 🧠 Create strong averaged embedding
+                // ❌ Not enough good samples
+                if (embeddingsRef.current.length < MIN_VALID_SAMPLES) {
+                    setCollecting(false);
+                    Alert.alert(
+                        'Registration Failed',
+                        'Face data was unstable. Please try again with better lighting and face visible.'
+                    );
+                    return;
+                }
+
+                // 🧠 Strong averaged embedding
                 const finalEmbedding = averageEmbedding(
                     embeddingsRef.current
                 );
@@ -95,8 +100,7 @@ const PreviewScreen = ({ route, navigation }: any) => {
             const embedding = await getEmbedding(rawPath);
 
             if (!embedding || embedding.length === 0) {
-                Alert.alert('Error', 'Failed to generate face embedding');
-                return;
+                throw new Error('Embedding generation failed');
             }
 
             const matched = processAttendance(embedding);
@@ -113,7 +117,8 @@ const PreviewScreen = ({ route, navigation }: any) => {
             navigation.navigate('Home');
         } catch (error) {
             console.error('Preview error:', error);
-            Alert.alert('Error', 'Something went wrong');
+            Alert.alert('Error', 'Failed to process face');
+            setCollecting(false);
         }
     };
 
@@ -127,17 +132,17 @@ const PreviewScreen = ({ route, navigation }: any) => {
 
             <Image source={{ uri: imageUri }} style={styles.image} />
 
-            {/* 🔹 Progress UI (clean, text-based) */}
+            {/* 🔹 Progress UI */}
             {mode === 'register' && collecting && (
                 <Text style={styles.progressText}>
-                    Capturing face data… {sampleCount} / {REQUIRED_SAMPLES}
+                    Capturing face data… {sampleCount} valid samples
                 </Text>
             )}
 
             <TouchableOpacity
                 style={[
                     styles.button,
-                    collecting && { opacity: 0.6 },
+                    collecting && styles.disabled,
                 ]}
                 onPress={handleContinue}
                 disabled={collecting}
@@ -184,6 +189,9 @@ const styles = StyleSheet.create({
         padding: 14,
         borderRadius: 8,
         alignItems: 'center',
+    },
+    disabled: {
+        opacity: 0.6,
     },
     buttonText: {
         color: '#fff',

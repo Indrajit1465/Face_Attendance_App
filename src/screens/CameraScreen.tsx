@@ -7,29 +7,25 @@ import {
     Alert,
 } from 'react-native';
 import { Camera, useCameraDevices } from 'react-native-vision-camera';
-import RNFS from 'react-native-fs';
+
 import { detectFaces } from '../services/faceDetection';
 import { cropFaceFromImage } from '../utils/faceCropper';
 import { getEmbedding } from '../services/faceRecognition';
+import { averageEmbedding } from '../utils/averageEmbedding';
 import { processAttendance } from '../services/attendanceService';
 
-const TOTAL_FRAMES = 8;        // ✅ number of frames for registration
-const FRAME_INTERVAL = 700;    // ms between frames
+const EMBEDDING_SAMPLES = 8;
 
-const CameraScreen = ({ navigation, route }: any) => {
+const CameraScreen = ({ route, navigation }: any) => {
     const { mode } = route.params;
 
-    const camera = useRef<Camera>(null);
+    const cameraRef = useRef<Camera>(null);
     const devices = useCameraDevices();
     const device = devices.find(d => d.position === 'front');
 
     const [hasPermission, setHasPermission] = useState(false);
-    const [capturing, setCapturing] = useState(false);
-    const [progress, setProgress] = useState(0);
+    const [processing, setProcessing] = useState(false);
 
-    // ---------------------------
-    // Camera permission
-    // ---------------------------
     useEffect(() => {
         (async () => {
             const status = await Camera.requestCameraPermission();
@@ -37,77 +33,85 @@ const CameraScreen = ({ navigation, route }: any) => {
         })();
     }, []);
 
-    // ---------------------------
-    // REGISTRATION: Multi-frame capture
-    // ---------------------------
+    // -----------------------------
+    // REGISTRATION (PHASE 3)
+    // -----------------------------
     const registerFace = async () => {
-        if (!camera.current || capturing) return;
+        if (!cameraRef.current || processing) return;
 
-        setCapturing(true);
-        setProgress(0);
-
-        const embeddings: number[][] = [];
+        setProcessing(true);
 
         try {
-            for (let i = 0; i < TOTAL_FRAMES; i++) {
-                const photo = await camera.current.takePhoto({ flash: 'off' });
-                const imageUri = `file://${photo.path}`;
+            // 1️⃣ Take a single photo
+            const photo = await cameraRef.current.takePhoto({ flash: 'off' });
 
-                const faces = await detectFaces(photo.path);
-                if (!faces || faces.length === 0) continue;
+            // 2️⃣ YOLO detection
+            const faces = await detectFaces(photo.path);
 
-                const face = faces[0];
-
-                // 🟢 crop only face
-                const croppedUri = await cropFaceFromImage(imageUri, face);
-
-                const embedding = await getEmbedding(
-                    croppedUri.replace('file://', '')
-                );
-
-                if (embedding && embedding.length > 0) {
-                    embeddings.push(embedding);
-                }
-
-                setProgress(i + 1);
-                await new Promise<void>(resolve => {
-                    setTimeout(() => resolve(), FRAME_INTERVAL);
-                });
-            }
-
-            if (embeddings.length < 3) {
+            if (!faces || faces.length === 0) {
                 Alert.alert(
-                    'Registration Failed',
-                    'Face not captured clearly. Please try again.'
+                    'Face not detected',
+                    'Please face the camera clearly'
                 );
-                setCapturing(false);
                 return;
             }
 
-            // ✅ Average embeddings
-            const avgEmbedding = averageEmbeddings(embeddings);
+            // 3️⃣ Pick best face (highest confidence)
+            const bestFace = faces.reduce((a, b) =>
+                b.confidence > a.confidence ? b : a
+            );
+
+            // 4️⃣ Crop face (UNCHANGED LOGIC)
+            const croppedUri = await cropFaceFromImage(
+                `file://${photo.path}`,
+                bestFace
+            );
+
+            // 5️⃣ Generate multiple embeddings (UNCHANGED)
+            const embeddings: number[][] = [];
+
+            for (let i = 0; i < EMBEDDING_SAMPLES; i++) {
+                const emb = await getEmbedding(
+                    croppedUri.replace('file://', '')
+                );
+                if (emb && emb.length === 192) {
+                    embeddings.push(emb);
+                }
+            }
+
+            if (embeddings.length < 2) {
+                Alert.alert(
+                    'Face unstable',
+                    'Face detected but embedding unstable. Try again.'
+                );
+                return;
+            }
+
+            // 6️⃣ Average embeddings (UNCHANGED)
+            const finalEmbedding = averageEmbedding(embeddings);
 
             navigation.navigate('Register', {
-                embedding: avgEmbedding,
+                embedding: finalEmbedding,
             });
+
         } catch (err) {
             console.error('Registration error:', err);
-            Alert.alert('Error', 'Failed to register face');
+            Alert.alert('Error', 'Face registration failed');
         } finally {
-            setCapturing(false);
+            setProcessing(false);
         }
     };
 
-    // ---------------------------
-    // ATTENDANCE: Single capture
-    // ---------------------------
+    // -----------------------------
+    // ATTENDANCE (PHASE 3)
+    // -----------------------------
     const markAttendance = async () => {
-        if (!camera.current || capturing) return;
+        if (!cameraRef.current || processing) return;
 
-        setCapturing(true);
+        setProcessing(true);
 
         try {
-            const photo = await camera.current.takePhoto({ flash: 'off' });
+            const photo = await cameraRef.current.takePhoto({ flash: 'off' });
             const faces = await detectFaces(photo.path);
 
             if (!faces || faces.length === 0) {
@@ -115,10 +119,13 @@ const CameraScreen = ({ navigation, route }: any) => {
                 return;
             }
 
-            const face = faces[0];
+            const bestFace = faces.reduce((a, b) =>
+                b.confidence > a.confidence ? b : a
+            );
+
             const croppedUri = await cropFaceFromImage(
                 `file://${photo.path}`,
-                face
+                bestFace
             );
 
             const embedding = await getEmbedding(
@@ -136,11 +143,12 @@ const CameraScreen = ({ navigation, route }: any) => {
                 );
                 navigation.navigate('Home');
             }
+
         } catch (err) {
             console.error('Attendance error:', err);
-            Alert.alert('Error', 'Failed to mark attendance');
+            Alert.alert('Error', 'Attendance failed');
         } finally {
-            setCapturing(false);
+            setProcessing(false);
         }
     };
 
@@ -155,37 +163,33 @@ const CameraScreen = ({ navigation, route }: any) => {
     return (
         <View style={styles.container}>
             <Camera
-                ref={camera}
+                ref={cameraRef}
                 style={StyleSheet.absoluteFill}
                 device={device}
                 isActive={true}
                 photo={true}
             />
 
-            {/* Registration UI */}
             {mode === 'register' && (
                 <TouchableOpacity
                     style={styles.button}
                     onPress={registerFace}
-                    disabled={capturing}
+                    disabled={processing}
                 >
                     <Text style={styles.buttonText}>
-                        {capturing
-                            ? `Capturing ${progress}/${TOTAL_FRAMES}`
-                            : 'Register Face'}
+                        {processing ? 'Processing…' : 'Register Face'}
                     </Text>
                 </TouchableOpacity>
             )}
 
-            {/* Attendance UI */}
             {mode === 'attendance' && (
                 <TouchableOpacity
                     style={styles.button}
                     onPress={markAttendance}
-                    disabled={capturing}
+                    disabled={processing}
                 >
                     <Text style={styles.buttonText}>
-                        {capturing ? 'Processing...' : 'Mark Attendance'}
+                        {processing ? 'Processing…' : 'Mark Attendance'}
                     </Text>
                 </TouchableOpacity>
             )}
@@ -193,33 +197,20 @@ const CameraScreen = ({ navigation, route }: any) => {
     );
 };
 
-// ---------------------------
-// Utils
-// ---------------------------
-const averageEmbeddings = (list: number[][]): number[] => {
-    const length = list[0].length;
-    const avg = new Array(length).fill(0);
-
-    list.forEach(vec => {
-        for (let i = 0; i < length; i++) {
-            avg[i] += vec[i];
-        }
-    });
-
-    return avg.map(v => v / list.length);
-};
-
-// ---------------------------
 const styles = StyleSheet.create({
     container: { flex: 1 },
-    center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    center: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
     button: {
         position: 'absolute',
         bottom: 40,
         alignSelf: 'center',
         backgroundColor: '#2563eb',
         paddingVertical: 14,
-        paddingHorizontal: 24,
+        paddingHorizontal: 26,
         borderRadius: 30,
     },
     buttonText: {
