@@ -15,6 +15,7 @@ import { averageEmbedding } from '../utils/averageEmbedding';
 import { processAttendance } from '../services/attendanceService';
 
 const EMBEDDING_SAMPLES = 8;
+const MIN_BOX_SIZE = 80; // Phase 4 distance gate
 
 const CameraScreen = ({ route, navigation }: any) => {
     const { mode } = route.params;
@@ -33,8 +34,29 @@ const CameraScreen = ({ route, navigation }: any) => {
         })();
     }, []);
 
+    // ---------------------------------
+    // PHASE 4: Select best usable face
+    // ---------------------------------
+    const selectBestFace = (faces: any[]) => {
+        const validFaces = faces.filter(
+            f => f.width >= MIN_BOX_SIZE && f.height >= MIN_BOX_SIZE
+        );
+
+        if (validFaces.length === 0) return null;
+
+        return validFaces.sort((a, b) => {
+            // Prefer larger face first
+            const areaDiff =
+                (b.width * b.height) - (a.width * a.height);
+            if (Math.abs(areaDiff) > 2000) return areaDiff;
+
+            // If similar size, prefer higher confidence
+            return b.confidence - a.confidence;
+        })[0];
+    };
+
     // -----------------------------
-    // REGISTRATION (PHASE 3)
+    // REGISTRATION (PHASE 4)
     // -----------------------------
     const registerFace = async () => {
         if (!cameraRef.current || processing) return;
@@ -42,10 +64,7 @@ const CameraScreen = ({ route, navigation }: any) => {
         setProcessing(true);
 
         try {
-            // 1️⃣ Take a single photo
             const photo = await cameraRef.current.takePhoto({ flash: 'off' });
-
-            // 2️⃣ YOLO detection
             const faces = await detectFaces(photo.path);
 
             if (!faces || faces.length === 0) {
@@ -56,18 +75,21 @@ const CameraScreen = ({ route, navigation }: any) => {
                 return;
             }
 
-            // 3️⃣ Pick best face (highest confidence)
-            const bestFace = faces.reduce((a, b) =>
-                b.confidence > a.confidence ? b : a
-            );
+            const bestFace = selectBestFace(faces);
 
-            // 4️⃣ Crop face (UNCHANGED LOGIC)
+            if (!bestFace) {
+                Alert.alert(
+                    'Face too far',
+                    'Please move slightly closer to the camera'
+                );
+                return;
+            }
+
             const croppedUri = await cropFaceFromImage(
                 `file://${photo.path}`,
                 bestFace
             );
 
-            // 5️⃣ Generate multiple embeddings (UNCHANGED)
             const embeddings: number[][] = [];
 
             for (let i = 0; i < EMBEDDING_SAMPLES; i++) {
@@ -87,7 +109,6 @@ const CameraScreen = ({ route, navigation }: any) => {
                 return;
             }
 
-            // 6️⃣ Average embeddings (UNCHANGED)
             const finalEmbedding = averageEmbedding(embeddings);
 
             navigation.navigate('Register', {
@@ -103,7 +124,7 @@ const CameraScreen = ({ route, navigation }: any) => {
     };
 
     // -----------------------------
-    // ATTENDANCE (PHASE 3)
+    // ATTENDANCE (PHASE 4)
     // -----------------------------
     const markAttendance = async () => {
         if (!cameraRef.current || processing) return;
@@ -119,9 +140,15 @@ const CameraScreen = ({ route, navigation }: any) => {
                 return;
             }
 
-            const bestFace = faces.reduce((a, b) =>
-                b.confidence > a.confidence ? b : a
-            );
+            const bestFace = selectBestFace(faces);
+
+            if (!bestFace) {
+                Alert.alert(
+                    'Face too far',
+                    'Please move slightly closer to the camera'
+                );
+                return;
+            }
 
             const croppedUri = await cropFaceFromImage(
                 `file://${photo.path}`,

@@ -3,7 +3,7 @@ import { getAllEmployees } from '../database/employeeRepo';
 import { markAttendance } from '../database/attendanceRepo';
 
 const SIMILARITY_THRESHOLD = 0.72;
-const MARGIN_THRESHOLD = 0.06;
+const MARGIN_THRESHOLD = 0.04;
 
 export const processAttendance = (faceEmbedding: number[]) => {
     const employees = getAllEmployees();

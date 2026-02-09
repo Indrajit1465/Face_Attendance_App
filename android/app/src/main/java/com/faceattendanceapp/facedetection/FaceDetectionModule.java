@@ -21,8 +21,8 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
 
     // Model input size
     private static final int INPUT_SIZE = 960;
-    private static final float CONF_THRESHOLD = 0.20f;
-    private static final int MIN_BOX_SIZE = 1;
+    private static final float CONF_THRESHOLD = 0.25f;
+    private static final int MIN_BOX_SIZE = 80;
 
     private Interpreter interpreter;
 
