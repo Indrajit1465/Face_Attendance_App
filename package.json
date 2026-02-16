@@ -7,12 +7,7 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
-<<<<<<< HEAD
-    "test": "jest",
-    "postinstall": "patch-package"
-=======
     "test": "jest"
->>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
   },
   "dependencies": {
     "@react-native-community/image-editor": "^4.3.0",
@@ -44,10 +39,6 @@
     "@types/react-test-renderer": "^19.1.0",
     "eslint": "^8.19.0",
     "jest": "^29.6.3",
-<<<<<<< HEAD
-    "patch-package": "^8.0.1",
-=======
->>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
     "prettier": "2.8.8",
     "react-test-renderer": "19.2.0",
     "typescript": "^5.8.3"
@@ -55,8 +46,4 @@
   "engines": {
     "node": ">=20"
   }
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c

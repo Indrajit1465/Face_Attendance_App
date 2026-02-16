@@ -13,21 +13,16 @@ import org.tensorflow.lite.Interpreter;
 import java.io.FileInputStream;
 import java.nio.*;
 import java.nio.channels.FileChannel;
-<<<<<<< HEAD
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-=======
-import java.util.Arrays;
->>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
 
 public class FaceDetectionModule extends ReactContextBaseJavaModule {
 
     private static final String TAG = "YOLO_FACE";
 
-    // Model input size
     private static final int INPUT_SIZE = 960;
     private static final float CONF_THRESHOLD = 0.25f;
     private static final int MIN_BOX_SIZE = 80;
@@ -88,7 +83,6 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
             }
 
             LetterboxResult lb = letterbox(src);
-
             ByteBuffer input = bitmapToBuffer(lb.bitmap);
 
             int[] outShape = interpreter.getOutputTensor(0).shape();
@@ -184,8 +178,7 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
     }
 
     // =========================
-<<<<<<< HEAD
-    // Helper Class for Sorting
+    // Helper class
     // =========================
     private static class FaceResult {
         int x, y, w, h;
@@ -205,21 +198,15 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
     }
 
     // =========================
-=======
->>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
-    // Output parsing (pixel-accurate)
+    // Output parsing with NMS
     // =========================
     private WritableArray parseOutput(
             float[][][] output,
             int origW,
             int origH,
             LetterboxResult lb) {
-<<<<<<< HEAD
 
         List<FaceResult> validFaces = new ArrayList<>();
-=======
-        WritableArray result = Arguments.createArray();
->>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
         int boxes = output[0][0].length;
 
         for (int i = 0; i < boxes; i++) {
@@ -227,7 +214,6 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
             if (conf < CONF_THRESHOLD)
                 continue;
 
-            // YOLO outputs are NORMALIZED (0–1)
             float cx = output[0][0][i] * INPUT_SIZE;
             float cy = output[0][1][i] * INPUT_SIZE;
             float w = output[0][2][i] * INPUT_SIZE;
@@ -245,41 +231,20 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
 
             if (iw < MIN_BOX_SIZE || ih < MIN_BOX_SIZE)
                 continue;
-
             if (ix + iw > origW)
                 iw = origW - ix;
             if (iy + ih > origH)
                 ih = origH - iy;
-
             if (iw <= 0 || ih <= 0)
                 continue;
 
-<<<<<<< HEAD
             validFaces.add(new FaceResult(ix, iy, iw, ih, conf));
         }
 
-        // Apply NMS (Non-Maximum Suppression)
         List<FaceResult> nmsFaces = nms(validFaces, 0.45f);
 
-        // Sort by Area Descending (Largest First) for attendance priority
-        Collections.sort(nmsFaces, new Comparator<FaceResult>() {
-            @Override
-            public int compare(FaceResult o1, FaceResult o2) {
-                return Integer.compare(o2.area(), o1.area());
-            }
-        });
+        Collections.sort(nmsFaces, (a, b) -> Integer.compare(b.area(), a.area()));
 
-        // Logging
-        Log.d(TAG, "Faces detected (after NMS): " + nmsFaces.size());
-        if (!nmsFaces.isEmpty()) {
-            FaceResult largest = nmsFaces.get(0);
-            Log.d(TAG, "Using largest face: x=" + largest.x +
-                    " y=" + largest.y +
-                    " w=" + largest.w +
-                    " h=" + largest.h);
-        }
-
-        // Convert to WritableArray
         WritableArray result = Arguments.createArray();
         for (FaceResult f : nmsFaces) {
             WritableMap face = Arguments.createMap();
@@ -291,35 +256,29 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
             result.pushMap(face);
         }
 
+        Log.d(TAG, "Faces detected after NMS: " + nmsFaces.size());
         return result;
     }
 
     // =========================
-    // NMS Logic
+    // NMS
     // =========================
     private List<FaceResult> nms(List<FaceResult> faces, float iouThreshold) {
         List<FaceResult> result = new ArrayList<>();
 
-        // Sort by confidence descending
-        Collections.sort(faces, new Comparator<FaceResult>() {
-            @Override
-            public int compare(FaceResult o1, FaceResult o2) {
-                return Float.compare(o2.conf, o1.conf);
-            }
-        });
+        Collections.sort(faces, (a, b) -> Float.compare(b.conf, a.conf));
 
         while (!faces.isEmpty()) {
-            FaceResult best = faces.get(0);
+            FaceResult best = faces.remove(0);
             result.add(best);
-            faces.remove(0);
 
-            List<FaceResult> nextPass = new ArrayList<>();
+            List<FaceResult> remaining = new ArrayList<>();
             for (FaceResult f : faces) {
                 if (iou(best, f) < iouThreshold) {
-                    nextPass.add(f);
+                    remaining.add(f);
                 }
             }
-            faces = nextPass;
+            faces = remaining;
         }
 
         return result;
@@ -339,19 +298,4 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
 
         return interArea / unionArea;
     }
-=======
-            WritableMap face = Arguments.createMap();
-            face.putInt("x", ix);
-            face.putInt("y", iy);
-            face.putInt("width", iw);
-            face.putInt("height", ih);
-            face.putDouble("confidence", conf);
-
-            result.pushMap(face);
-        }
-
-        Log.d(TAG, "Faces detected: " + result.size());
-        return result;
-    }
->>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
 }

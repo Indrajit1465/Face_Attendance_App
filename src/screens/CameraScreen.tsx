@@ -15,7 +15,7 @@ import { averageEmbedding } from '../utils/averageEmbedding';
 import { processAttendance } from '../services/attendanceService';
 
 const EMBEDDING_SAMPLES = 8;
-const MIN_BOX_SIZE = 80; // Phase 4 distance gate
+const MIN_BOX_SIZE = 80;
 
 const CameraScreen = ({ route, navigation }: any) => {
     const { mode } = route.params;
@@ -27,6 +27,11 @@ const CameraScreen = ({ route, navigation }: any) => {
     const [hasPermission, setHasPermission] = useState(false);
     const [processing, setProcessing] = useState(false);
 
+    const [isScanning, setIsScanning] = useState(false);
+    const scanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isScanningRef = useRef(false);
+
     useEffect(() => {
         (async () => {
             const status = await Camera.requestCameraPermission();
@@ -34,9 +39,12 @@ const CameraScreen = ({ route, navigation }: any) => {
         })();
     }, []);
 
-    // ---------------------------------
-    // PHASE 4: Select best usable face
-    // ---------------------------------
+    useEffect(() => {
+        return () => {
+            stopScanning();
+        };
+    }, []);
+
     const selectBestFace = (faces: any[]) => {
         const validFaces = faces.filter(
             f => f.width >= MIN_BOX_SIZE && f.height >= MIN_BOX_SIZE
@@ -45,18 +53,16 @@ const CameraScreen = ({ route, navigation }: any) => {
         if (validFaces.length === 0) return null;
 
         return validFaces.sort((a, b) => {
-            // Prefer larger face first
             const areaDiff =
                 (b.width * b.height) - (a.width * a.height);
             if (Math.abs(areaDiff) > 2000) return areaDiff;
 
-            // If similar size, prefer higher confidence
             return b.confidence - a.confidence;
         })[0];
     };
 
     // -----------------------------
-    // REGISTRATION (PHASE 4)
+    // REGISTRATION
     // -----------------------------
     const registerFace = async () => {
         if (!cameraRef.current || processing) return;
@@ -66,26 +72,16 @@ const CameraScreen = ({ route, navigation }: any) => {
         try {
             const photo = await cameraRef.current.takePhoto({ flash: 'off' });
             const faces = await detectFaces(photo.path);
-<<<<<<< HEAD
-            console.log("Faces detected (JS):", faces.length);
-=======
->>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
 
             if (!faces || faces.length === 0) {
-                Alert.alert(
-                    'Face not detected',
-                    'Please face the camera clearly'
-                );
+                Alert.alert('Face not detected', 'Please face the camera clearly');
                 return;
             }
 
             const bestFace = selectBestFace(faces);
 
             if (!bestFace) {
-                Alert.alert(
-                    'Face too far',
-                    'Please move slightly closer to the camera'
-                );
+                Alert.alert('Face too far', 'Please move closer to the camera');
                 return;
             }
 
@@ -106,10 +102,7 @@ const CameraScreen = ({ route, navigation }: any) => {
             }
 
             if (embeddings.length < 2) {
-                Alert.alert(
-                    'Face unstable',
-                    'Face detected but embedding unstable. Try again.'
-                );
+                Alert.alert('Face unstable', 'Try again');
                 return;
             }
 
@@ -128,25 +121,15 @@ const CameraScreen = ({ route, navigation }: any) => {
     };
 
     // -----------------------------
-<<<<<<< HEAD
-    // LIVE ATTENDANCE (PHASE 7)
+    // LIVE ATTENDANCE
     // -----------------------------
-    const [isScanning, setIsScanning] = useState(false);
-    const scanTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const safetyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const isScanningRef = useRef(false); // Ref for immediate access in loop
-
-    useEffect(() => {
-        return () => {
-            stopScanning();
-        };
-    }, []);
-
     const stopScanning = () => {
         setIsScanning(false);
         isScanningRef.current = false;
+
         if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
         if (safetyTimerRef.current) clearTimeout(safetyTimerRef.current);
+
         setProcessing(false);
     };
 
@@ -155,12 +138,9 @@ const CameraScreen = ({ route, navigation }: any) => {
 
         setIsScanning(true);
         isScanningRef.current = true;
-        console.log('Capture cycle started');
 
-        // Safety timeout: Stop after 15 seconds
         safetyTimerRef.current = setTimeout(() => {
             if (isScanningRef.current) {
-                console.log('Scanning timeout');
                 Alert.alert('Timeout', 'No face matched in 15 seconds.');
                 stopScanning();
             }
@@ -173,23 +153,11 @@ const CameraScreen = ({ route, navigation }: any) => {
         if (!isScanningRef.current) return;
         if (!cameraRef.current) return;
 
-        // Prevent overlap if previous is still running (though logic mostly serial)
-        // But here we want the next tick to wait, so we don't block `processing` check strictly
-        // We use `processing` for UI, but loop controls itself with setTimeout
-=======
-    // ATTENDANCE (PHASE 4)
-    // -----------------------------
-    const markAttendance = async () => {
-        if (!cameraRef.current || processing) return;
->>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
-
         setProcessing(true);
 
         try {
             const photo = await cameraRef.current.takePhoto({ flash: 'off' });
             const faces = await detectFaces(photo.path);
-<<<<<<< HEAD
-            console.log("Faces detected (JS):", faces.length);
 
             if (faces && faces.length > 0) {
                 const bestFace = selectBestFace(faces);
@@ -207,16 +175,13 @@ const CameraScreen = ({ route, navigation }: any) => {
                     const matched = processAttendance(embedding);
 
                     if (matched.length > 0) {
-                        console.log(`Attendance marked for: ${matched.join(', ')}`);
                         Alert.alert(
                             'Attendance',
                             `${matched.join(', ')} attendance marked`
                         );
                         stopScanning();
                         navigation.navigate('Home');
-                        return; // Stop loop
-                    } else {
-                        console.log('Face detected but not matched (Distance > threshold)');
+                        return;
                     }
                 }
             }
@@ -227,21 +192,13 @@ const CameraScreen = ({ route, navigation }: any) => {
             setProcessing(false);
         }
 
-        // Schedule next capture if still scanning
         if (isScanningRef.current) {
             scanTimerRef.current = setTimeout(captureAndProcess, 1500);
         }
     };
 
-    // Manual triggers replaced by startScanning for attendance mode
-    /* 
-    const markAttendance = async () => { ... } // Removed in favor of live loop
-    */
-
-    // Auto-start scanning if in attendance mode
     useEffect(() => {
         if (mode === 'attendance') {
-            // Short delay to ensure camera is ready
             const timer = setTimeout(() => {
                 startScanning();
             }, 500);
@@ -249,53 +206,6 @@ const CameraScreen = ({ route, navigation }: any) => {
         }
     }, [mode]);
 
-=======
-
-            if (!faces || faces.length === 0) {
-                Alert.alert('No Face', 'Face not detected');
-                return;
-            }
-
-            const bestFace = selectBestFace(faces);
-
-            if (!bestFace) {
-                Alert.alert(
-                    'Face too far',
-                    'Please move slightly closer to the camera'
-                );
-                return;
-            }
-
-            const croppedUri = await cropFaceFromImage(
-                `file://${photo.path}`,
-                bestFace
-            );
-
-            const embedding = await getEmbedding(
-                croppedUri.replace('file://', '')
-            );
-
-            const matched = processAttendance(embedding);
-
-            if (matched.length === 0) {
-                Alert.alert('Unknown Face', 'Face not recognized');
-            } else {
-                Alert.alert(
-                    'Attendance',
-                    `${matched.join(', ')} attendance marked`
-                );
-                navigation.navigate('Home');
-            }
-
-        } catch (err) {
-            console.error('Attendance error:', err);
-            Alert.alert('Error', 'Attendance failed');
-        } finally {
-            setProcessing(false);
-        }
-    };
-
->>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
     if (!device || !hasPermission) {
         return (
             <View style={styles.center}>
@@ -327,24 +237,11 @@ const CameraScreen = ({ route, navigation }: any) => {
             )}
 
             {mode === 'attendance' && (
-<<<<<<< HEAD
                 <View style={{ position: 'absolute', bottom: 40, alignSelf: 'center', alignItems: 'center' }}>
                     <Text style={{ color: 'white', marginBottom: 10, fontSize: 16, fontWeight: 'bold' }}>
                         Scanning...
                     </Text>
-                    {/* Manual button removed for auto-start flow */}
                 </View>
-=======
-                <TouchableOpacity
-                    style={styles.button}
-                    onPress={markAttendance}
-                    disabled={processing}
-                >
-                    <Text style={styles.buttonText}>
-                        {processing ? 'Processing…' : 'Mark Attendance'}
-                    </Text>
-                </TouchableOpacity>
->>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
             )}
         </View>
     );
