@@ -66,7 +66,10 @@ const CameraScreen = ({ route, navigation }: any) => {
         try {
             const photo = await cameraRef.current.takePhoto({ flash: 'off' });
             const faces = await detectFaces(photo.path);
+<<<<<<< HEAD
             console.log("Faces detected (JS):", faces.length);
+=======
+>>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
 
             if (!faces || faces.length === 0) {
                 Alert.alert(
@@ -125,6 +128,7 @@ const CameraScreen = ({ route, navigation }: any) => {
     };
 
     // -----------------------------
+<<<<<<< HEAD
     // LIVE ATTENDANCE (PHASE 7)
     // -----------------------------
     const [isScanning, setIsScanning] = useState(false);
@@ -172,12 +176,19 @@ const CameraScreen = ({ route, navigation }: any) => {
         // Prevent overlap if previous is still running (though logic mostly serial)
         // But here we want the next tick to wait, so we don't block `processing` check strictly
         // We use `processing` for UI, but loop controls itself with setTimeout
+=======
+    // ATTENDANCE (PHASE 4)
+    // -----------------------------
+    const markAttendance = async () => {
+        if (!cameraRef.current || processing) return;
+>>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
 
         setProcessing(true);
 
         try {
             const photo = await cameraRef.current.takePhoto({ flash: 'off' });
             const faces = await detectFaces(photo.path);
+<<<<<<< HEAD
             console.log("Faces detected (JS):", faces.length);
 
             if (faces && faces.length > 0) {
@@ -238,6 +249,53 @@ const CameraScreen = ({ route, navigation }: any) => {
         }
     }, [mode]);
 
+=======
+
+            if (!faces || faces.length === 0) {
+                Alert.alert('No Face', 'Face not detected');
+                return;
+            }
+
+            const bestFace = selectBestFace(faces);
+
+            if (!bestFace) {
+                Alert.alert(
+                    'Face too far',
+                    'Please move slightly closer to the camera'
+                );
+                return;
+            }
+
+            const croppedUri = await cropFaceFromImage(
+                `file://${photo.path}`,
+                bestFace
+            );
+
+            const embedding = await getEmbedding(
+                croppedUri.replace('file://', '')
+            );
+
+            const matched = processAttendance(embedding);
+
+            if (matched.length === 0) {
+                Alert.alert('Unknown Face', 'Face not recognized');
+            } else {
+                Alert.alert(
+                    'Attendance',
+                    `${matched.join(', ')} attendance marked`
+                );
+                navigation.navigate('Home');
+            }
+
+        } catch (err) {
+            console.error('Attendance error:', err);
+            Alert.alert('Error', 'Attendance failed');
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+>>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
     if (!device || !hasPermission) {
         return (
             <View style={styles.center}>
@@ -269,12 +327,24 @@ const CameraScreen = ({ route, navigation }: any) => {
             )}
 
             {mode === 'attendance' && (
+<<<<<<< HEAD
                 <View style={{ position: 'absolute', bottom: 40, alignSelf: 'center', alignItems: 'center' }}>
                     <Text style={{ color: 'white', marginBottom: 10, fontSize: 16, fontWeight: 'bold' }}>
                         Scanning...
                     </Text>
                     {/* Manual button removed for auto-start flow */}
                 </View>
+=======
+                <TouchableOpacity
+                    style={styles.button}
+                    onPress={markAttendance}
+                    disabled={processing}
+                >
+                    <Text style={styles.buttonText}>
+                        {processing ? 'Processing…' : 'Mark Attendance'}
+                    </Text>
+                </TouchableOpacity>
+>>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
             )}
         </View>
     );

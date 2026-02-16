@@ -13,11 +13,15 @@ import org.tensorflow.lite.Interpreter;
 import java.io.FileInputStream;
 import java.nio.*;
 import java.nio.channels.FileChannel;
+<<<<<<< HEAD
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+=======
+import java.util.Arrays;
+>>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
 
 public class FaceDetectionModule extends ReactContextBaseJavaModule {
 
@@ -180,6 +184,7 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
     }
 
     // =========================
+<<<<<<< HEAD
     // Helper Class for Sorting
     // =========================
     private static class FaceResult {
@@ -200,6 +205,8 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
     }
 
     // =========================
+=======
+>>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
     // Output parsing (pixel-accurate)
     // =========================
     private WritableArray parseOutput(
@@ -207,8 +214,12 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
             int origW,
             int origH,
             LetterboxResult lb) {
+<<<<<<< HEAD
 
         List<FaceResult> validFaces = new ArrayList<>();
+=======
+        WritableArray result = Arguments.createArray();
+>>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
         int boxes = output[0][0].length;
 
         for (int i = 0; i < boxes; i++) {
@@ -243,6 +254,7 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
             if (iw <= 0 || ih <= 0)
                 continue;
 
+<<<<<<< HEAD
             validFaces.add(new FaceResult(ix, iy, iw, ih, conf));
         }
 
@@ -327,4 +339,19 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
 
         return interArea / unionArea;
     }
+=======
+            WritableMap face = Arguments.createMap();
+            face.putInt("x", ix);
+            face.putInt("y", iy);
+            face.putInt("width", iw);
+            face.putInt("height", ih);
+            face.putDouble("confidence", conf);
+
+            result.pushMap(face);
+        }
+
+        Log.d(TAG, "Faces detected: " + result.size());
+        return result;
+    }
+>>>>>>> a4606bec95d8e273e5bd686db39d8c98facb2d1c
 }
