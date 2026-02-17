@@ -83,6 +83,11 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
             }
 
             LetterboxResult lb = letterbox(src);
+            if (lb == null) {
+                Log.e(TAG, "Letterbox failed (Bitmap error)");
+                promise.resolve(Arguments.createArray()); // Return empty logic safely
+                return;
+            }
             ByteBuffer input = bitmapToBuffer(lb.bitmap);
 
             int[] outShape = interpreter.getOutputTensor(0).shape();
@@ -126,27 +131,33 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
         int newW = Math.round(w * scale);
         int newH = Math.round(h * scale);
 
-        Bitmap resized = Bitmap.createScaledBitmap(src, newW, newH, true);
-        Bitmap output = Bitmap.createBitmap(
-                INPUT_SIZE,
-                INPUT_SIZE,
-                Bitmap.Config.ARGB_8888);
+        Bitmap output = null;
+        try {
+            Bitmap resized = Bitmap.createScaledBitmap(src, newW, newH, true);
+            output = Bitmap.createBitmap(
+                    INPUT_SIZE,
+                    INPUT_SIZE,
+                    Bitmap.Config.ARGB_8888);
 
-        Canvas canvas = new Canvas(output);
-        canvas.drawColor(Color.BLACK);
+            Canvas canvas = new Canvas(output);
+            canvas.drawColor(Color.BLACK);
 
-        int padX = (INPUT_SIZE - newW) / 2;
-        int padY = (INPUT_SIZE - newH) / 2;
+            int padX = (INPUT_SIZE - newW) / 2;
+            int padY = (INPUT_SIZE - newH) / 2;
 
-        canvas.drawBitmap(resized, padX, padY, null);
+            canvas.drawBitmap(resized, padX, padY, null);
 
-        LetterboxResult res = new LetterboxResult();
-        res.bitmap = output;
-        res.scale = scale;
-        res.padX = padX;
-        res.padY = padY;
+            LetterboxResult res = new LetterboxResult();
+            res.bitmap = output;
+            res.scale = scale;
+            res.padX = padX;
+            res.padY = padY;
 
-        return res;
+            return res;
+        } catch (Exception e) {
+            Log.e(TAG, "Letterbox error: " + e.getMessage());
+            return null;
+        }
     }
 
     // =========================
@@ -224,21 +235,31 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
             float width = w / lb.scale;
             float height = h / lb.scale;
 
-            int ix = Math.max(0, Math.round(x));
-            int iy = Math.max(0, Math.round(y));
-            int iw = Math.round(width);
-            int ih = Math.round(height);
+            // 1. Calculate integer edges
+            int x1 = Math.round(x);
+            int y1 = Math.round(y);
+            int x2 = x1 + Math.round(width);
+            int y2 = y1 + Math.round(height);
 
-            if (iw < MIN_BOX_SIZE || ih < MIN_BOX_SIZE)
-                continue;
-            if (ix + iw > origW)
-                iw = origW - ix;
-            if (iy + ih > origH)
-                ih = origH - iy;
-            if (iw <= 0 || ih <= 0)
-                continue;
+            // 2. Strict clamp to image boundaries
+            int finalX1 = Math.max(0, x1);
+            int finalY1 = Math.max(0, y1);
+            int finalX2 = Math.min(origW, x2);
+            int finalY2 = Math.min(origH, y2);
 
-            validFaces.add(new FaceResult(ix, iy, iw, ih, conf));
+            // 3. Calculate new dimensions
+            int finalW = finalX2 - finalX1;
+            int finalH = finalY2 - finalY1;
+
+            // 4. Validate output
+            if (finalW < MIN_BOX_SIZE || finalH < MIN_BOX_SIZE) {
+                continue;
+            }
+
+            // Valid detection
+            Log.d(TAG, "Valid Face: x=" + finalX1 + " y=" + finalY1 + " w=" + finalW + " h=" + finalH + " img=" + origW
+                    + "x" + origH);
+            validFaces.add(new FaceResult(finalX1, finalY1, finalW, finalH, conf));
         }
 
         List<FaceResult> nmsFaces = nms(validFaces, 0.45f);

@@ -35,5 +35,5 @@ export const processAttendance = (faceEmbedding: number[]) => {
     }
 
     markAttendance(best.emp.emp_id, best.emp.name);
-    return [best.emp.name];
+    return [{ name: best.emp.name, id: best.emp.emp_id }];
 };
