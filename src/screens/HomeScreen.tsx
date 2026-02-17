@@ -9,17 +9,15 @@ const HomeScreen = ({ navigation }: any) => {
         try {
             const path = await exportAttendanceCSV();
 
-            // ✅ SAFETY CHECK (prevents crash)
             if (!path) {
-                Alert.alert('Error', 'File path not generated');
+                Alert.alert('Error', 'Failed to generate Excel file');
                 return;
             }
 
-            await Share.open({
-                title: 'Export Attendance',
-                url: `file://${path}`,
-                type: 'text/csv',
-            });
+            Alert.alert(
+                'Success',
+                `File saved to Downloads:\n\n${path.split('/').pop()}`
+            );
         } catch (error) {
             console.error('Export failed:', error);
             Alert.alert('Error', 'Failed to export attendance data');
