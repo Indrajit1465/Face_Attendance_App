@@ -1,7 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { exportAttendanceCSV } from '../database/exportRepo';
-import Share from 'react-native-share';
 
 const HomeScreen = ({ navigation }: any) => {
 

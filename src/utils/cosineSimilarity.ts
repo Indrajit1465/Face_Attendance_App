@@ -1,12 +1,11 @@
-const normalize = (v: number[]) => {
-    const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
-    return v.map(x => x / norm);
-};
+import { l2Normalize } from './normalizeEmbedding';
 
 export const cosineSimilarity = (a: number[], b: number[]) => {
-    const na = normalize(a);
-    const nb = normalize(b);
+    // 1. Defensively normalize both vectors exactly before mapping
+    const na = l2Normalize(a);
+    const nb = l2Normalize(b);
 
+    // 2. Compute spatial distance
     let dot = 0;
     for (let i = 0; i < na.length; i++) {
         dot += na[i] * nb[i];

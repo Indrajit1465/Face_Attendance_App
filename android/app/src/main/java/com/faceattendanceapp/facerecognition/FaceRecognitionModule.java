@@ -7,6 +7,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.util.Log;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
@@ -89,6 +90,9 @@ public class FaceRecognitionModule extends ReactContextBaseJavaModule {
             Bitmap square = makeSquare(bitmap);
             Bitmap resized = Bitmap.createScaledBitmap(square, INPUT_SIZE, INPUT_SIZE, true);
 
+            Log.d("BIOMETRIC_AUDIT", "Original Bitmap: " + bitmap.getWidth() + "x" + bitmap.getHeight());
+            Log.d("BIOMETRIC_AUDIT", "Resized Native Bitmap: " + resized.getWidth() + "x" + resized.getHeight());
+
             float[][][][] input = new float[1][INPUT_SIZE][INPUT_SIZE][3];
 
             for (int y = 0; y < INPUT_SIZE; y++) {
@@ -101,6 +105,12 @@ public class FaceRecognitionModule extends ReactContextBaseJavaModule {
                 }
             }
 
+            Log.d("BIOMETRIC_AUDIT", "First 5 pixels (RGB input values):");
+            for (int i = 0; i < 5; i++) {
+                Log.d("BIOMETRIC_AUDIT", "Px " + i + " -> R:" + input[0][0][i][0] + " G:" + input[0][0][i][1] + " B:"
+                        + input[0][0][i][2]);
+            }
+
             float[][] output = new float[1][EMBEDDING_SIZE];
             interpreter.run(input, output);
 
@@ -109,16 +119,24 @@ public class FaceRecognitionModule extends ReactContextBaseJavaModule {
             for (float v : output[0])
                 sum += v * v;
 
-            float norm = (float) Math.sqrt(sum);
-            if (norm < 1e-6) {
+            float normBefore = (float) Math.sqrt(sum);
+            Log.d("BIOMETRIC_AUDIT", "Embedding length: " + output[0].length);
+            Log.d("BIOMETRIC_AUDIT", "Norm BEFORE normalization: " + normBefore);
+
+            if (normBefore < 1e-6) {
                 promise.reject("EMBEDDING_ERROR", "Invalid embedding norm");
                 return;
             }
 
             WritableArray embedding = Arguments.createArray();
+            float sumAfter = 0f;
             for (float v : output[0]) {
-                embedding.pushDouble(v / norm);
+                float val = v / normBefore;
+                embedding.pushDouble(val);
+                sumAfter += val * val;
             }
+            float normAfter = (float) Math.sqrt(sumAfter);
+            Log.d("BIOMETRIC_AUDIT", "Norm AFTER normalization: " + normAfter);
 
             promise.resolve(embedding);
 

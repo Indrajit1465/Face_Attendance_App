@@ -1,3 +1,5 @@
+import { l2Normalize } from './normalizeEmbedding';
+
 export const averageEmbedding = (embeddings: number[][]): number[] => {
     if (!embeddings || embeddings.length === 0) {
         throw new Error('No embeddings provided for averaging');
@@ -29,5 +31,8 @@ export const averageEmbedding = (embeddings: number[][]): number[] => {
         }
     }
 
-    return avg;
+    // 🔥 VITAL: The purely mathematical average of multiple normalized vectors 
+    // is NOT guaranteed to be normalized itself length-1. 
+    // We MUST re-normalize it before saving to DB.
+    return l2Normalize(avg);
 };
