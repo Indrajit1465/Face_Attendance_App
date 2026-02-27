@@ -7,33 +7,69 @@ type FaceBox = {
     height: number;
 };
 
+type ImageDimensions = {
+    width: number;
+    height: number;
+};
+
 // 🔧 Tunable constants
-const FACE_MARGIN = 0.35;   // 35% padding around face
+// NOTE: FaceDetectionModule.java already adds 20% padding to the YOLO box.
+// This margin is only a small safety buffer on top of that.
+const FACE_MARGIN = 0.10;            // ✅ was 0.35 — Java already handles main padding
+const MIN_CROP_SIZE = 112;           // ✅ Must be at least as large as MobileFaceNet input
 
 export const cropFaceFromImage = async (
     imageUri: string,
-    face: FaceBox
-): Promise<string> => {
-    // 1. Calculate a perfect square from the bounding box (take the max dimension)
+    face: FaceBox,
+    imageDimensions: ImageDimensions  // ✅ NEW: needed for right/bottom edge clamping
+): Promise<string | null> => {
+
+    // 1. Perfect square from max dimension
     const sideLength = Math.max(face.width, face.height);
 
-    // 2. Add safe padding to the square
+    // 2. Add safety padding
     const padding = sideLength * FACE_MARGIN;
     const paddedSide = sideLength + padding * 2;
 
-    // 3. Keep the crop perfectly centered over the original bounding box 
+    // 3. Minimum size guard
+    if (paddedSide < MIN_CROP_SIZE) {
+        console.warn(`[faceCropper] Crop too small: ${paddedSide.toFixed(1)}px — minimum is ${MIN_CROP_SIZE}px`);
+        return null;  // ✅ Reject small crops — don't send bad data downstream
+    }
+
+    // 4. Center of original YOLO box
     const cx = face.x + face.width / 2;
     const cy = face.y + face.height / 2;
 
-    // 4. Calculate final top-left offset
-    const x = Math.max(cx - paddedSide / 2, 0);
-    const y = Math.max(cy - paddedSide / 2, 0);
+    // 5. Raw top-left before clamping
+    const rawX = cx - paddedSide / 2;
+    const rawY = cy - paddedSide / 2;
 
-    console.log(`[BIOMETRIC AUDIT] Cropping square at X:${x.toFixed(1)} Y:${y.toFixed(1)} Size:${paddedSide.toFixed(1)}`);
+    // 6. ✅ Clamp top-left to image bounds
+    const clampedX = Math.max(rawX, 0);
+    const clampedY = Math.max(rawY, 0);
+
+    // 7. ✅ Clamp bottom-right to image bounds
+    //    Reduce crop size if it overflows — keeps crop valid even near edges
+    const maxAllowedW = imageDimensions.width - clampedX;
+    const maxAllowedH = imageDimensions.height - clampedY;
+    const finalSize = Math.floor(Math.min(paddedSide, maxAllowedW, maxAllowedH));
+
+    // 8. Final size guard after clamping
+    if (finalSize < MIN_CROP_SIZE) {
+        console.warn(`[faceCropper] Post-clamp crop too small: ${finalSize}px`);
+        return null;
+    }
+
+    console.log(
+        `[BIOMETRIC AUDIT] Crop → X:${clampedX.toFixed(1)} Y:${clampedY.toFixed(1)}` +
+        ` Size:${finalSize}×${finalSize}` +
+        ` (requested ${paddedSide.toFixed(1)}, clamped from raw ${rawX.toFixed(1)},${rawY.toFixed(1)})`
+    );
 
     const result = await ImageEditor.cropImage(imageUri, {
-        offset: { x, y },
-        size: { width: paddedSide, height: paddedSide }, // Perfect square source
+        offset: { x: clampedX, y: clampedY },
+        size: { width: finalSize, height: finalSize },  // ✅ Always within bounds
     });
 
     return result.uri;

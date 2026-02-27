@@ -1,25 +1,47 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import React, { useState } from 'react';
+import {
+    View, Text, TouchableOpacity,
+    StyleSheet, Alert, ActivityIndicator,
+} from 'react-native';
 import { exportAttendanceCSV } from '../database/exportRepo';
 
 const HomeScreen = ({ navigation }: any) => {
 
+    // ✅ Loading state — prevents double-tap and gives user feedback
+    const [exporting, setExporting] = useState(false);
+
     const handleExport = async () => {
+        // ✅ Guard against re-entry while export is already running
+        if (exporting) return;
+        setExporting(true);
+
         try {
             const path = await exportAttendanceCSV();
 
             if (!path) {
-                Alert.alert('Error', 'Failed to generate Excel file');
+                Alert.alert('Export Failed', 'Could not generate the Excel file. Please try again.');
                 return;
             }
 
+            // ✅ Show full path so user can locate file
             Alert.alert(
-                'Success',
-                `File saved to Downloads:\n\n${path.split('/').pop()}`
+                'Export Successful ✅',
+                `File saved to:\n\n${path}`,
+                [{ text: 'OK' }]
             );
-        } catch (error) {
-            console.error('Export failed:', error);
-            Alert.alert('Error', 'Failed to export attendance data');
+
+        } catch (error: any) {
+            if (error?.message === 'PERMISSION_DENIED') {
+                Alert.alert('Permission Required',
+                    'Storage permission was denied. Please allow it in Settings to export reports.');
+            } else if (error?.message === 'NO_DATA') {
+                Alert.alert('No Data', 'There are no attendance records to export yet.');
+            } else {
+                Alert.alert('Export Failed', 'An error occurred while exporting attendance data.');
+            }
+        } finally {
+            // ✅ Always re-enable button even if export threw
+            setExporting(false);
         }
     };
 
@@ -27,6 +49,7 @@ const HomeScreen = ({ navigation }: any) => {
         <View style={styles.container}>
             <Text style={styles.title}>Face Attendance System</Text>
 
+            {/* Register */}
             <TouchableOpacity
                 style={styles.button}
                 onPress={() => navigation.navigate('Camera', { mode: 'register' })}
@@ -34,6 +57,7 @@ const HomeScreen = ({ navigation }: any) => {
                 <Text style={styles.buttonText}>Register Employee</Text>
             </TouchableOpacity>
 
+            {/* Attendance */}
             <TouchableOpacity
                 style={styles.button}
                 onPress={() => navigation.navigate('Camera', { mode: 'attendance' })}
@@ -42,10 +66,28 @@ const HomeScreen = ({ navigation }: any) => {
             </TouchableOpacity>
 
             <TouchableOpacity
-                style={[styles.button, styles.exportButton]}
-                onPress={handleExport}
+                style={[styles.button, styles.logButton]}
+                onPress={() => navigation.navigate('Attendance')}
             >
-                <Text style={styles.buttonText}>Export Attendance (Excel)</Text>
+                <Text style={styles.buttonText}>View Attendance Log</Text>
+            </TouchableOpacity>
+
+            {/* Export */}
+            <TouchableOpacity
+                style={[styles.button, styles.exportButton, exporting && styles.disabledButton]}
+                onPress={handleExport}
+                disabled={exporting}   // ✅ prevents double-tap at OS level too
+            >
+                {exporting ? (
+                    <View style={styles.exportingRow}>
+                        <ActivityIndicator color="#fff" size="small" />
+                        <Text style={[styles.buttonText, { marginLeft: 10 }]}>
+                            Exporting…
+                        </Text>
+                    </View>
+                ) : (
+                    <Text style={styles.buttonText}>Export Attendance (Excel)</Text>
+                )}
             </TouchableOpacity>
         </View>
     );
@@ -62,6 +104,10 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 22,
         marginBottom: 40,
+        fontWeight: 'bold',
+    },
+    logButton: {
+        backgroundColor: '#7c3aed',  // purple — visually distinct from other actions
     },
     button: {
         backgroundColor: '#2563eb',
@@ -73,6 +119,13 @@ const styles = StyleSheet.create({
     },
     exportButton: {
         backgroundColor: '#16a34a',
+    },
+    disabledButton: {
+        opacity: 0.6,               // ✅ Visual feedback that button is disabled
+    },
+    exportingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
     },
     buttonText: {
         color: '#fff',

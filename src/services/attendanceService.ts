@@ -2,60 +2,102 @@ import { cosineSimilarity } from '../utils/cosineSimilarity';
 import { l2Normalize } from '../utils/normalizeEmbedding';
 import { getAllEmployees } from '../database/employeeRepo';
 
-const SIMILARITY_THRESHOLD = 0.72;
-const MARGIN_THRESHOLD = 0.05; // Strict Phase 14 limit
-const DEBUG_RECOGNITION = true; // Phase 13.5: Production debugging
+// ✅ Raised from 0.72 → 0.82 (was inside different-person danger zone)
+const SIMILARITY_THRESHOLD = 0.82;
 
-export const processMultiAttendance = (embeddings: number[][]) => {
-    const employees = getAllEmployees();
+// ✅ Raised from 0.05 → 0.10 (requires clear separation between top-2 candidates)
+const MARGIN_THRESHOLD = 0.10;
+
+const DEBUG_RECOGNITION = true;
+
+type MatchResult = {
+    name: string;
+    id: string;
+    score: number;   // ✅ expose score for caller's state machine
+    margin: number;  // ✅ expose margin for logging/debugging
+};
+
+export const processMultiAttendance = async (
+    embeddings: number[][]
+): Promise<MatchResult[]> => {
+
+    // ✅ Await DB call (was silently returning Promise object if async)
+    const employees = await getAllEmployees();
+
     if (employees.length === 0 || embeddings.length === 0) return [];
 
-    const matchedResults: Array<{ name: string; id: string }> = [];
+    const matchedResults: MatchResult[] = [];
 
     for (let faceEmbedding of embeddings) {
-        // Phase 13.2: Defensively normalize the incoming live embedding
-        faceEmbedding = l2Normalize(faceEmbedding);
 
-        let best = { emp: null as any, score: 0 };
-        let second = { score: 0 };
+        // ✅ Normalize live embedding ONCE here (not again inside cosineSimilarity)
+        const normalizedLive = l2Normalize(faceEmbedding);
+        if (!normalizedLive) {
+            console.warn('[attendanceService] Bad live embedding — skipping frame');
+            continue;
+        }
+
+        let bestScore = 0;
+        let bestEmp: any = null;
+        let secondScore = 0;
 
         for (const emp of employees) {
-            // Note: DB embeddings are normalized during Registration before saving,
-            // and cosineSimilarity also applies defensive normalization internally.
-            const score = cosineSimilarity(faceEmbedding, emp.embedding);
+            // ✅ Support multiple stored embeddings per person (array of embeddings)
+            // If emp.embedding is a flat number[], wrap it; if it's number[][], use directly
+            const storedEmbeddings: number[][] = Array.isArray(emp.embedding[0])
+                ? (emp.embedding as unknown as number[][])
+                : [emp.embedding as number[]];
 
-            if (score > best.score) {
-                second = { ...best };
-                best = { emp, score };
-            } else if (score > second.score) {
-                second = { score };
+            // ✅ Take the MAX score across all stored embeddings for this person
+            let empBestScore = 0;
+            for (const storedEmb of storedEmbeddings) {
+                const score = cosineSimilarity(normalizedLive, storedEmb);
+                if (score !== null && score > empBestScore) {
+                    empBestScore = score;
+                }
+            }
+
+            // Update global best / second best
+            if (empBestScore > bestScore) {
+                secondScore = bestScore;
+                bestScore = empBestScore;
+                bestEmp = emp;
+            } else if (empBestScore > secondScore) {
+                secondScore = empBestScore;
             }
         }
 
-        const margin = best.score - second.score;
+        const margin = bestScore - secondScore;
 
-        if (DEBUG_RECOGNITION && best.emp) {
-            console.log(`[BIOMETRIC DEBUG] Target: ${best.emp.name}`);
-            console.log(` - Best Score:    ${best.score.toFixed(4)}`);
-            console.log(` - Second Best:   ${second.score.toFixed(4)}`);
-            console.log(` - Margin :       ${margin.toFixed(4)}`);
-            console.log(` - Threshold Required: ${SIMILARITY_THRESHOLD}, Margin Required: ${MARGIN_THRESHOLD}`);
+        if (DEBUG_RECOGNITION) {
+            console.log(`[BIOMETRIC DEBUG] Best candidate: ${bestEmp?.name ?? 'none'}`);
+            console.log(` - Best Score:   ${bestScore.toFixed(4)}`);
+            console.log(` - Second Best:  ${secondScore.toFixed(4)}`);
+            console.log(` - Margin:       ${margin.toFixed(4)}`);
+            console.log(` - Required:     score≥${SIMILARITY_THRESHOLD}, margin≥${MARGIN_THRESHOLD}`);
 
-            if (best.score >= SIMILARITY_THRESHOLD && margin >= MARGIN_THRESHOLD) {
-                console.log(` => Result: SUCCESSFUL MATCH`);
+            if (bestScore >= SIMILARITY_THRESHOLD && margin >= MARGIN_THRESHOLD) {
+                console.log(` => ✅ MATCH: ${bestEmp?.name}`);
             } else {
-                console.log(` => Result: ABORTED (Unsafe distance or margin)`);
+                const reason = bestScore < SIMILARITY_THRESHOLD
+                    ? `score too low (${bestScore.toFixed(4)} < ${SIMILARITY_THRESHOLD})`
+                    : `margin too small (${margin.toFixed(4)} < ${MARGIN_THRESHOLD})`;
+                console.log(` => ❌ REJECTED: ${reason}`);
             }
         }
 
-        // Validate if the best match is strong enough and distinct from the second best
+        // ✅ Both threshold AND margin must pass
         if (
-            best.score >= SIMILARITY_THRESHOLD &&
+            bestEmp !== null &&
+            bestScore >= SIMILARITY_THRESHOLD &&
             margin >= MARGIN_THRESHOLD
         ) {
-            // Phase 12.4: Pure Recognition
-            // Just return the recognized identity. Let CameraScreen handle the state and DB.
-            matchedResults.push({ name: best.emp.name, id: best.emp.emp_id });
+            matchedResults.push({
+                name: bestEmp.name,
+                id: bestEmp.emp_id,
+                score: bestScore,
+                margin: margin,
+            });
         }
     }
 
