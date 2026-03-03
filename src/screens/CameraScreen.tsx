@@ -11,6 +11,7 @@ import { averageEmbedding } from '../utils/averageEmbedding';
 import { processMultiAttendance } from '../services/attendanceService';
 import { markAttendance } from '../database/attendanceRepo';
 import { cosineSimilarity } from '../utils/cosineSimilarity';
+import { invalidateEmployeeCache } from '../services/attendanceService';
 
 const EXPECTED_EMBEDDING_SIZE = 192;
 const MIN_BOX_SIZE = 120;
@@ -47,8 +48,8 @@ const CameraScreen = ({ route, navigation }: any) => {
     const nullStreak = useRef<number>(0);
     const isScanningRef = useRef(false);
 
-    const UNKNOWN_STREAK_THRESHOLD = 5;
-    const PROTECTION_WINDOW = 6000;
+    const UNKNOWN_STREAK_THRESHOLD = 7;
+    const PROTECTION_WINDOW = 7000;
 
     useEffect(() => {
         (async () => {
@@ -389,11 +390,22 @@ const CameraScreen = ({ route, navigation }: any) => {
 
                 recognitionBuffer.current = [];
 
+                // ── Replace the entire "else" branch after confirmedUser check: ──
+
             } else {
-                const lastFrameUnknown = buf.length > 0 && buf[buf.length - 1] === 'unknown';
-                if (lastFrameUnknown) nullStreak.current++;
+                // ✅ Only increment nullStreak OUTSIDE protection window
+                // Inside window, we trust the last confirmed identity
+                if (!inProtectionWindow) {
+                    const lastFrameUnknown = buf.length > 0 && buf[buf.length - 1] === 'unknown';
+                    if (lastFrameUnknown) nullStreak.current++;
+                } else {
+                    // ✅ Reset null streak while inside protection window
+                    // Prevents streak from building up during brief recognition gaps
+                    nullStreak.current = 0;
+                }
 
                 if (!inProtectionWindow && nullStreak.current >= UNKNOWN_STREAK_THRESHOLD) {
+                    console.log(`[CameraScreen] True Unknown — ${nullStreak.current} nulls outside window`);
                     setPopupData({ name: 'Unknown', id: 'Not Registered', type: 'error' });
                     setTimeout(() => {
                         setPopupData(prev => prev?.type === 'error' ? null : prev);
@@ -401,10 +413,9 @@ const CameraScreen = ({ route, navigation }: any) => {
                     recognitionBuffer.current = [];
                     nullStreak.current = 0;
                 } else {
-                    console.log(`[CameraScreen] Hysteresis active — nullStreak: ${nullStreak.current}`);
+                    console.log(`[CameraScreen] Hysteresis — nullStreak: ${nullStreak.current}, inWindow: ${inProtectionWindow}`);
                 }
             }
-
         } catch (err) {
             console.error('[CameraScreen] Scanning error:', err);
             setDetectedFaces([]);
@@ -440,6 +451,7 @@ const CameraScreen = ({ route, navigation }: any) => {
 
     useEffect(() => {
         if (mode === 'attendance') {
+            invalidateEmployeeCache();
             const timer = setTimeout(() => startScanning(), 500);
             return () => clearTimeout(timer);
         }

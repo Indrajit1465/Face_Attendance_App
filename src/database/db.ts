@@ -35,6 +35,15 @@ export const initDB = (): QuickSQLiteConnection => {
         ON employees (name);
     `);
 
+  // In initDB(), add after attendance table:
+  database.execute(`
+    CREATE TABLE IF NOT EXISTS cluster_index (
+        id       INTEGER PRIMARY KEY,
+        data     TEXT    NOT NULL,
+        built_at INTEGER NOT NULL
+    );
+`);
+
   // ─────────────────────────────────────────
   // Attendance table (session-based)
   // ─────────────────────────────────────────
