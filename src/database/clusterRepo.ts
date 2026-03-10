@@ -1,5 +1,6 @@
 import { getDB } from './db';
 import { ClusterIndex, Centroid } from '../utils/embeddingCluster';
+import Logger from '../utils/Logger';
 
 // ─────────────────────────────────────────────────────
 // Add to db.ts initDB():
@@ -17,15 +18,18 @@ export const saveClusterIndex = (index: ClusterIndex): void => {
         const db = getDB();
         const json = JSON.stringify(index);
 
-        // Upsert — always keep only one cluster index
+        // ✅ Atomic upsert — wrapped in transaction to prevent index loss on crash
+        db.execute('BEGIN TRANSACTION');
         db.execute(`DELETE FROM cluster_index`);
         db.execute(
             `INSERT INTO cluster_index (data, built_at) VALUES (?, ?)`,
             [json, index.builtAt]
         );
-        console.log(`[clusterRepo] Saved cluster index (${index.empCount} employees)`);
+        db.execute('COMMIT');
+        Logger.debug('clusterRepo', `Saved cluster index (${index.empCount} employees)`);
     } catch (err) {
-        console.error('[clusterRepo] Failed to save cluster index:', err);
+        try { getDB().execute('ROLLBACK'); } catch { /* ignore rollback errors */ }
+        Logger.error('clusterRepo', 'Failed to save cluster index:', err);
     }
 };
 
@@ -40,11 +44,11 @@ export const loadClusterIndex = (): ClusterIndex | null => {
         if (!row?.data) return null;
 
         const index: ClusterIndex = JSON.parse(row.data);
-        console.log(`[clusterRepo] Loaded cluster index (${index.empCount} employees, ${index.centroids.length} clusters)`);
+        Logger.debug('clusterRepo', `Loaded cluster index (${index.empCount} employees, ${index.centroids.length} clusters)`);
         return index;
 
     } catch (err) {
-        console.error('[clusterRepo] Failed to load cluster index:', err);
+        Logger.error('clusterRepo', 'Failed to load cluster index:', err);
         return null;
     }
 };

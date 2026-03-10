@@ -2,10 +2,15 @@ import { l2Normalize } from './normalizeEmbedding';
 
 /**
  * Computes cosine similarity between two embedding vectors.
- * Both inputs should already be L2-normalized (unit vectors).
- * Returns null if either input is invalid.
+ * @param preNormalized — if true, skip L2 re-normalization (caller guarantees unit vectors).
+ *                        Use true in the hot-path (attendanceService) where embeddings
+ *                        are already normalized by getEmbedding().
  */
-export const cosineSimilarity = (a: number[], b: number[]): number | null => {
+export const cosineSimilarity = (
+    a: number[],
+    b: number[],
+    preNormalized: boolean = false,
+): number | null => {
     // Validate inputs
     if (!a || !b || a.length === 0 || b.length === 0) {
         console.warn('[cosineSimilarity] Empty vector received');
@@ -17,20 +22,25 @@ export const cosineSimilarity = (a: number[], b: number[]): number | null => {
         return null;
     }
 
-    // Normalize defensively (handles case where caller forgot to normalize)
-    const na = l2Normalize(a);
-    const nb = l2Normalize(b);
+    let va = a;
+    let vb = b;
 
-    // ✅ Null check after normalization
-    if (!na || !nb) {
-        console.warn('[cosineSimilarity] Normalization failed for one or both vectors');
-        return null;
+    if (!preNormalized) {
+        // Normalize defensively (handles case where caller forgot to normalize)
+        const na = l2Normalize(a);
+        const nb = l2Normalize(b);
+        if (!na || !nb) {
+            console.warn('[cosineSimilarity] Normalization failed');
+            return null;
+        }
+        va = na;
+        vb = nb;
     }
 
     // Dot product of unit vectors = cosine similarity
     let dot = 0;
-    for (let i = 0; i < na.length; i++) {
-        dot += na[i] * nb[i];
+    for (let i = 0; i < va.length; i++) {
+        dot += va[i] * vb[i];
     }
 
     // Clamp to [-1, 1] to handle floating point drift

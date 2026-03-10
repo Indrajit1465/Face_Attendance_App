@@ -1,4 +1,5 @@
 import ImageEditor from '@react-native-community/image-editor';
+import Logger from './Logger';
 
 type FaceBox = {
     x: number;
@@ -33,7 +34,7 @@ export const cropFaceFromImage = async (
 
     // 3. Minimum size guard
     if (paddedSide < MIN_CROP_SIZE) {
-        console.warn(`[faceCropper] Crop too small: ${paddedSide.toFixed(1)}px — minimum is ${MIN_CROP_SIZE}px`);
+        Logger.debug('faceCropper', `Crop too small: ${paddedSide.toFixed(1)}px — minimum is ${MIN_CROP_SIZE}px`);
         return null;  // ✅ Reject small crops — don't send bad data downstream
     }
 
@@ -57,12 +58,12 @@ export const cropFaceFromImage = async (
 
     // 8. Final size guard after clamping
     if (finalSize < MIN_CROP_SIZE) {
-        console.warn(`[faceCropper] Post-clamp crop too small: ${finalSize}px`);
+        Logger.debug('faceCropper', `Post-clamp crop too small: ${finalSize}px`);
         return null;
     }
 
-    console.log(
-        `[BIOMETRIC AUDIT] Crop → X:${clampedX.toFixed(1)} Y:${clampedY.toFixed(1)}` +
+    Logger.debug('BIOMETRIC',
+        `Crop → X:${clampedX.toFixed(1)} Y:${clampedY.toFixed(1)}` +
         ` Size:${finalSize}×${finalSize}` +
         ` (requested ${paddedSide.toFixed(1)}, clamped from raw ${rawX.toFixed(1)},${rawY.toFixed(1)})`
     );

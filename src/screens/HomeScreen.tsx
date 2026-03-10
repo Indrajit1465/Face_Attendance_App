@@ -10,6 +10,11 @@ const HomeScreen = ({ navigation }: any) => {
     // ✅ Loading state — prevents double-tap and gives user feedback
     const [exporting, setExporting] = useState(false);
 
+    // ✅ PIN-gated navigation — routes through PinEntry first
+    const navigateWithPin = (target: string, targetParams: any = {}) => {
+        navigation.navigate('PinEntry', { target, targetParams });
+    };
+
     const handleExport = async () => {
         // ✅ Guard against re-entry while export is already running
         if (exporting) return;
@@ -45,38 +50,68 @@ const HomeScreen = ({ navigation }: any) => {
         }
     };
 
+    // ✅ PIN-gated export — verify first, then export
+    const handlePinThenExport = () => {
+        // Navigate to PinEntry, which on success goes to a callback
+        // Since export is an action (not a screen), we navigate to Home with export flag
+        navigateWithPin('Home', { autoExport: true });
+    };
+
+    // ✅ Check if we were redirected back after PIN success for export
+    React.useEffect(() => {
+        const unsubscribe = navigation.addListener('focus', () => {
+            const params = navigation.getState()?.routes?.find(
+                (r: any) => r.name === 'Home'
+            )?.params;
+            if (params?.autoExport) {
+                // Clear the flag and run export
+                navigation.setParams({ autoExport: undefined });
+                handleExport();
+            }
+        });
+        return unsubscribe;
+    }, [navigation]);
+
     return (
         <View style={styles.container}>
             <Text style={styles.title}>Face Attendance System</Text>
 
-            {/* Register */}
+            {/* Mark Attendance — NO PIN required (kiosk mode) */}
             <TouchableOpacity
-                style={styles.button}
-                onPress={() => navigation.navigate('Camera', { mode: 'register' })}
-            >
-                <Text style={styles.buttonText}>Register Employee</Text>
-            </TouchableOpacity>
-
-            {/* Attendance */}
-            <TouchableOpacity
-                style={styles.button}
+                style={[styles.button, styles.scanButton]}
                 onPress={() => navigation.navigate('Camera', { mode: 'attendance' })}
             >
-                <Text style={styles.buttonText}>Mark Attendance</Text>
+                <Text style={styles.buttonText}>📷  Mark Attendance</Text>
             </TouchableOpacity>
 
+            {/* ─── Admin Section ─── */}
+            <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>🔒 Admin</Text>
+                <View style={styles.dividerLine} />
+            </View>
+
+            {/* Register — PIN required */}
+            <TouchableOpacity
+                style={styles.button}
+                onPress={() => navigateWithPin('Camera', { mode: 'register' })}
+            >
+                <Text style={styles.buttonText}>🔒  Register Employee</Text>
+            </TouchableOpacity>
+
+            {/* Attendance Log — PIN required */}
             <TouchableOpacity
                 style={[styles.button, styles.logButton]}
-                onPress={() => navigation.navigate('Attendance')}
+                onPress={() => navigateWithPin('Attendance')}
             >
-                <Text style={styles.buttonText}>View Attendance Log</Text>
+                <Text style={styles.buttonText}>🔒  View Attendance Log</Text>
             </TouchableOpacity>
 
-            {/* Export */}
+            {/* Export — PIN required */}
             <TouchableOpacity
                 style={[styles.button, styles.exportButton, exporting && styles.disabledButton]}
-                onPress={handleExport}
-                disabled={exporting}   // ✅ prevents double-tap at OS level too
+                onPress={handlePinThenExport}
+                disabled={exporting}
             >
                 {exporting ? (
                     <View style={styles.exportingRow}>
@@ -86,7 +121,7 @@ const HomeScreen = ({ navigation }: any) => {
                         </Text>
                     </View>
                 ) : (
-                    <Text style={styles.buttonText}>Export Attendance (Excel)</Text>
+                    <Text style={styles.buttonText}>🔒  Export Attendance (Excel)</Text>
                 )}
             </TouchableOpacity>
         </View>
@@ -103,25 +138,46 @@ const styles = StyleSheet.create({
     title: {
         color: '#fff',
         fontSize: 22,
-        marginBottom: 40,
+        marginBottom: 32,
         fontWeight: 'bold',
     },
+    scanButton: {
+        backgroundColor: '#2563eb',
+        marginBottom: 28,
+    },
+    divider: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        width: '70%',
+        marginBottom: 20,
+    },
+    dividerLine: {
+        flex: 1,
+        height: 1,
+        backgroundColor: '#333',
+    },
+    dividerText: {
+        color: '#666',
+        fontSize: 12,
+        marginHorizontal: 12,
+        fontWeight: '600',
+    },
     logButton: {
-        backgroundColor: '#7c3aed',  // purple — visually distinct from other actions
+        backgroundColor: '#7c3aed',
     },
     button: {
         backgroundColor: '#2563eb',
         padding: 16,
         borderRadius: 8,
         width: '70%',
-        marginBottom: 20,
+        marginBottom: 14,
         alignItems: 'center',
     },
     exportButton: {
         backgroundColor: '#16a34a',
     },
     disabledButton: {
-        opacity: 0.6,               // ✅ Visual feedback that button is disabled
+        opacity: 0.6,
     },
     exportingRow: {
         flexDirection: 'row',

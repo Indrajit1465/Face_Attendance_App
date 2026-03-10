@@ -6,6 +6,7 @@ import AttendanceScreen from '../screens/AttendanceScreen';
 import CameraScreen from '../screens/CameraScreen';
 import PreviewScreen from '../screens/PreviewScreen';
 import RegisterEmployeeScreen from '../screens/RegisterEmployeeScreen';
+import PinEntryScreen from '../screens/PinEntryScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -70,6 +71,17 @@ const AppNavigator = () => {
                     title: 'Register Employee',
                     headerShown: true,
                     headerBackTitle: 'Back',
+                }}
+            />
+
+            {/* PIN Entry — gates admin features */}
+            <Stack.Screen
+                name="PinEntry"
+                component={PinEntryScreen}
+                options={{
+                    title: 'Admin Access',
+                    headerShown: true,
+                    animation: 'fade',
                 }}
             />
         </Stack.Navigator>

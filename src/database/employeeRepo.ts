@@ -1,4 +1,5 @@
 import { getDB } from './db';
+import Logger from '../utils/Logger';
 
 // ✅ Must match EMBEDDING_SIZE in FaceRecognitionModule.java
 // Check logcat on app startup: "Model output shape: [1, 128]" or "[1, 192]"
@@ -23,13 +24,13 @@ export type Employee = {
  */
 const validateEmbedding = (embedding: any, context: string): boolean => {
     if (!Array.isArray(embedding)) {
-        console.warn(`[employeeRepo] ${context}: embedding is not an array`);
+        Logger.warn('employeeRepo', `${context}: embedding is not an array`);
         return false;
     }
 
     if (embedding.length !== EXPECTED_EMBEDDING_SIZE) {
-        console.warn(
-            `[employeeRepo] ${context}: wrong embedding length ` +
+        Logger.warn('employeeRepo',
+            `${context}: wrong embedding length ` +
             `(got ${embedding.length}, expected ${EXPECTED_EMBEDDING_SIZE})`
         );
         return false;
@@ -37,8 +38,8 @@ const validateEmbedding = (embedding: any, context: string): boolean => {
 
     for (let i = 0; i < embedding.length; i++) {
         if (typeof embedding[i] !== 'number' || !isFinite(embedding[i])) {
-            console.warn(
-                `[employeeRepo] ${context}: non-finite value at index ${i}: ${embedding[i]}`
+            Logger.warn('employeeRepo',
+                `${context}: non-finite value at index ${i}: ${embedding[i]}`
             );
             return false;
         }
@@ -47,7 +48,7 @@ const validateEmbedding = (embedding: any, context: string): boolean => {
     // Check norm is non-zero (not a blank embedding)
     const norm = Math.sqrt(embedding.reduce((s: number, x: number) => s + x * x, 0));
     if (norm < 1e-6) {
-        console.warn(`[employeeRepo] ${context}: near-zero norm embedding (${norm})`);
+        Logger.warn('employeeRepo', `${context}: near-zero norm embedding (${norm})`);
         return false;
     }
 
@@ -85,7 +86,7 @@ export const insertEmployee = (
         [empId, name, JSON.stringify(embedding)]
     );
 
-    console.log(`[employeeRepo] Registered employee: ${name} (${empId}), embedding size: ${embedding.length}`);
+    Logger.info('employeeRepo', `Registered employee: ${name} (${empId}), embedding size: ${embedding.length}`);
 };
 
 // ─────────────────────────────────────────────────────
@@ -108,7 +109,7 @@ export const getAllEmployees = async (): Promise<Employee[]> => {
 
         // ✅ Guard: skip rows with missing data
         if (!row || !row.emp_id || !row.name || !row.embedding) {
-            console.warn(`[employeeRepo] Skipping row ${i}: missing required fields`);
+            Logger.warn('employeeRepo', `Skipping row ${i}: missing required fields`);
             continue;
         }
 
@@ -117,13 +118,13 @@ export const getAllEmployees = async (): Promise<Employee[]> => {
         try {
             parsed = JSON.parse(row.embedding);
         } catch (e) {
-            console.warn(`[employeeRepo] Failed to parse embedding for ${row.name}: ${e}`);
+            Logger.warn('employeeRepo', `Failed to parse embedding for ${row.name}: ${e}`);
             continue; // ✅ Skip corrupted row — don't crash the whole list
         }
 
         // ✅ Guard: validate parsed embedding before using it
         if (!validateEmbedding(parsed, `getAllEmployees → ${row.name}`)) {
-            console.warn(`[employeeRepo] Skipping ${row.name}: invalid embedding in DB`);
+            Logger.warn('employeeRepo', `Skipping ${row.name}: invalid embedding in DB`);
             continue;
         }
 
@@ -134,7 +135,7 @@ export const getAllEmployees = async (): Promise<Employee[]> => {
         });
     }
 
-    console.log(`[employeeRepo] Loaded ${employees.length} valid employees from DB`);
+    Logger.debug('employeeRepo', `Loaded ${employees.length} valid employees from DB`);
     return employees;
 };
 
@@ -145,7 +146,7 @@ export const getAllEmployees = async (): Promise<Employee[]> => {
 export const deleteEmployee = (empId: string): void => {
     const db = getDB();
     db.execute(`DELETE FROM employees WHERE emp_id = ?`, [empId]);
-    console.log(`[employeeRepo] Deleted employee: ${empId}`);
+    Logger.debug('employeeRepo', `Deleted employee: ${empId}`);
 };
 
 // ─────────────────────────────────────────────────────

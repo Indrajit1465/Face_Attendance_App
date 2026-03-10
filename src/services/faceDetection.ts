@@ -1,4 +1,5 @@
 import { NativeModules } from 'react-native';
+import Logger from '../utils/Logger';
 
 const { FaceDetection } = NativeModules;
 
@@ -29,7 +30,7 @@ export async function detectFaces(
 ): Promise<FaceBox[]> {
 
     if (!imagePath || typeof imagePath !== 'string' || imagePath.trim() === '') {
-        console.warn('[faceDetection] Empty imagePath');
+        Logger.warn('faceDetection', 'Empty imagePath');
         return [];
     }
 
@@ -40,7 +41,7 @@ export async function detectFaces(
         const raw = await FaceDetection.detectFaces(normalizedPath, confThreshold);
 
         if (!raw || !Array.isArray(raw)) {
-            console.warn('[faceDetection] Non-array response from native');
+            Logger.warn('faceDetection', 'Non-array response from native');
             return [];
         }
 
@@ -55,16 +56,16 @@ export async function detectFaces(
                     confidence: face.confidence,
                 });
             } else {
-                console.warn('[faceDetection] Dropping invalid face box:', face);
+                Logger.debug('faceDetection', 'Dropping invalid face box:', face);
             }
         }
 
-        console.log(`[faceDetection] ${validFaces.length} valid face(s) `
+        Logger.debug('faceDetection', `${validFaces.length} valid face(s) `
             + `(threshold=${confThreshold}, raw=${raw.length})`);
         return validFaces;
 
     } catch (err) {
-        console.error('[faceDetection] Native error:', err);
+        Logger.error('faceDetection', 'Native error:', err);
         return [];
     }
 }

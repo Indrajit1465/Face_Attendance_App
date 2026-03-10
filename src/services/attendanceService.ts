@@ -1,5 +1,5 @@
 import { cosineSimilarity } from '../utils/cosineSimilarity';
-import { l2Normalize } from '../utils/normalizeEmbedding';
+import Logger from '../utils/Logger';
 import { getAllEmployees, Employee } from '../database/employeeRepo';
 import {
     buildClusterIndex,
@@ -35,7 +35,7 @@ export const invalidateEmployeeCache = (): void => {
     clusterIndex = null;
     employeeMap.clear();
     cacheLoadedAt = 0;
-    console.log('[attendanceService] Cache + cluster index invalidated');
+    Logger.debug('attendanceService', 'Cache + cluster index invalidated');
 };
 
 // ─────────────────────────────────────────────────────
@@ -46,21 +46,21 @@ const initializeIndex = async (): Promise<void> => {
     if (employeeCache && clusterIndex && (now - cacheLoadedAt) < CACHE_TTL_MS) return;
 
     try {
-        console.log('[attendanceService] Building search index...');
+        Logger.debug('attendanceService', 'Building search index...');
         const t0 = Date.now();
 
         const employees = await getAllEmployees();
         employeeCache = employees;
 
         // 🔎 DEBUG: Show DB embedding sample
-        console.log(`[MATCH DEBUG] Employee embeddings sample:`);
+        Logger.debug('MATCH', `Employee embeddings sample:`);
         if (employees.length > 0) {
             const sample = employees[0];
             const emb = Array.isArray(sample.embedding[0])
                 ? (sample.embedding as unknown as number[][])[0]
                 : sample.embedding as number[];
             const norm = Math.sqrt(emb.reduce((s: number, x: number) => s + x * x, 0));
-            console.log(`  ${sample.name}: embLen=${emb.length} norm=${norm.toFixed(4)}`);
+            Logger.debug('MATCH', `  ${sample.name}: embLen=${emb.length} norm=${norm.toFixed(4)}`);
         }
 
         employeeMap.clear();
@@ -82,7 +82,7 @@ const initializeIndex = async (): Promise<void> => {
         ) {
             clusterIndex = saved;
             cacheLoadedAt = now;
-            console.log(`[attendanceService] Reused saved cluster index in ${Date.now() - t0}ms`);
+            Logger.debug('attendanceService', `Reused saved cluster index in ${Date.now() - t0}ms`);
             return;
         }
 
@@ -100,11 +100,11 @@ const initializeIndex = async (): Promise<void> => {
 
         saveClusterIndex(index);
 
-        console.log(`[attendanceService] Index built in ${Date.now() - t0}ms`
+        Logger.debug('attendanceService', `Index built in ${Date.now() - t0}ms`
             + ` (${employees.length} employees, ${index.centroids.length} clusters)`);
 
     } catch (err) {
-        console.error('[attendanceService] Index build failed:', err);
+        Logger.error('attendanceService', 'Index build failed:', err);
         employeeCache = employeeCache ?? [];
         clusterIndex = clusterIndex ?? { centroids: [], builtAt: 0, empCount: 0 };
     }
@@ -132,13 +132,14 @@ export const processMultiAttendance = async (
 
     // ✅ Dynamic margin based on actual employee count
     const effectiveMargin = getDynamicMargin(employeeCache.length);
-    console.log(`[MATCH DEBUG] Using margin=${effectiveMargin} for ${employeeCache.length} employees`);
+    Logger.debug('MATCH', `Using margin=${effectiveMargin} for ${employeeCache.length} employees`);
 
     const matchedResults: MatchResult[] = [];
 
     for (let faceEmbedding of embeddings) {
-        const normalizedLive = l2Normalize(faceEmbedding);
-        if (!normalizedLive) continue;
+        // ✅ Embeddings from getEmbedding() are already L2-normalized (Java + JS)
+        //    No need for redundant l2Normalize() here
+        const normalizedLive = faceEmbedding;
 
         let bestScore = 0;
         let bestEmp: Employee | null = null;
@@ -153,7 +154,7 @@ export const processMultiAttendance = async (
                 for (const id of cluster.memberIds) candidateIds.add(id);
             }
 
-            console.log(`[attendanceService] Checking ${candidateIds.size}/${employeeCache.length} candidates`);
+            Logger.debug('attendanceService', `Checking ${candidateIds.size}/${employeeCache.length} candidates`);
 
             for (const empId of candidateIds) {
                 const emp = employeeMap.get(empId);
@@ -165,7 +166,7 @@ export const processMultiAttendance = async (
 
                 let empBestScore = 0;
                 for (const storedEmb of storedEmbeddings) {
-                    const score = cosineSimilarity(normalizedLive, storedEmb);
+                    const score = cosineSimilarity(normalizedLive, storedEmb, true);
                     if (score !== null && score > empBestScore) empBestScore = score;
                 }
 
@@ -209,16 +210,12 @@ export const processMultiAttendance = async (
         const margin = bestScore - secondScore;
         const searchMs = Date.now() - t0;
 
-        console.log(`[MATCH DEBUG] ── Frame scan ──`);
-        console.log(`[MATCH DEBUG] Employees in cache: ${employeeCache?.length ?? 0}`);
-        console.log(`[MATCH DEBUG] Live norm: ${normalizedLive
-            ? Math.sqrt(normalizedLive.reduce((s, x) => s + x * x, 0)).toFixed(4)
-            : 'NULL'
-            }`);
-        console.log(`[MATCH DEBUG] Best score: ${bestScore.toFixed(4)} vs ${SIMILARITY_THRESHOLD}`);
-        console.log(`[MATCH DEBUG] Margin: ${margin.toFixed(4)} vs ${effectiveMargin} (dynamic)`);
-        console.log(`[MATCH DEBUG] Best candidate: ${bestEmp?.name ?? 'NONE'}`);
-        console.log(`[BIOMETRIC DEBUG] Best: ${bestEmp?.name ?? 'none'}`
+        Logger.debug('MATCH', `── Frame scan ──`);
+        Logger.debug('MATCH', `Employees in cache: ${employeeCache?.length ?? 0}`);
+        Logger.debug('MATCH', `Best score: ${bestScore.toFixed(4)} vs ${SIMILARITY_THRESHOLD}`);
+        Logger.debug('MATCH', `Margin: ${margin.toFixed(4)} vs ${effectiveMargin} (dynamic)`);
+        Logger.debug('MATCH', `Best candidate: ${bestEmp?.name ?? 'NONE'}`);
+        Logger.debug('BIOMETRIC', `Best: ${bestEmp?.name ?? 'none'}`
             + ` score=${bestScore.toFixed(4)}`
             + ` margin=${margin.toFixed(4)}`
             + ` searchTime=${searchMs}ms`);

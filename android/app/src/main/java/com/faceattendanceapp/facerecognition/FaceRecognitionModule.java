@@ -31,9 +31,18 @@ public class FaceRecognitionModule extends ReactContextBaseJavaModule {
     private static int EMBEDDING_SIZE = 192; // Will be verified at runtime
 
     private Interpreter interpreter;
+    private boolean modelLoadAttempted = false;
 
     public FaceRecognitionModule(ReactApplicationContext reactContext) {
         super(reactContext);
+        initializeModel();
+    }
+
+    // ✅ Extracted from constructor — can be retried if first attempt fails
+    private synchronized void initializeModel() {
+        if (interpreter != null)
+            return;
+        modelLoadAttempted = true;
         try {
             Interpreter.Options options = new Interpreter.Options();
             options.setNumThreads(4);
@@ -58,9 +67,19 @@ public class FaceRecognitionModule extends ReactContextBaseJavaModule {
             }
 
         } catch (IOException e) {
-            e.printStackTrace();
+            Log.e(TAG, "MobileFaceNet model load failed", e);
             interpreter = null;
         }
+    }
+
+    // ✅ Lazy-init: retry model load once if initial attempt failed
+    private synchronized Interpreter ensureModelLoaded() {
+        if (interpreter == null) {
+            Log.w(TAG, "Interpreter null — retrying model load...");
+            modelLoadAttempted = false;
+            initializeModel();
+        }
+        return interpreter;
     }
 
     @NonNull
@@ -82,8 +101,10 @@ public class FaceRecognitionModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void getEmbedding(String imagePath, Promise promise) {
         try {
-            if (interpreter == null) {
-                promise.reject("MODEL_NOT_LOADED", "TFLite model not loaded");
+            // ✅ Lazy-init: retry model load if first attempt failed
+            Interpreter interp = ensureModelLoaded();
+            if (interp == null) {
+                promise.reject("MODEL_NOT_LOADED", "MobileFaceNet model failed to load");
                 return;
             }
 

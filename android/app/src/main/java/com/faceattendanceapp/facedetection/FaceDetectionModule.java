@@ -22,7 +22,7 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
 
     private static final String TAG = "YOLO_FACE";
 
-    private static final int INPUT_SIZE = 960;
+    private static final int INPUT_SIZE = 640; // ✅ matches YOLOv8n-face model input
     private static final float CONF_THRESHOLD = 0.75f; // ✅ was 0.25f
     private static final int MIN_BOX_SIZE = 120; // ✅ was 80
     private static final float PAD_FACTOR = 0.20f; // ✅ NEW: 20% padding around face
@@ -69,11 +69,30 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void detectFaces(String imagePath, float confThreshold, Promise promise) {
         try {
-            Bitmap src = BitmapFactory.decodeFile(imagePath);
+            // ✅ Guard: reject if model failed to load
+            if (interpreter == null) {
+                Log.e(TAG, "YOLO interpreter is null — model not loaded");
+                promise.resolve(Arguments.createArray());
+                return;
+            }
+
+            // ✅ Downsample before decoding — avoids loading full 8-12MP into memory
+            BitmapFactory.Options boundsOpts = new BitmapFactory.Options();
+            boundsOpts.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(imagePath, boundsOpts);
+
+            BitmapFactory.Options decodeOpts = new BitmapFactory.Options();
+            decodeOpts.inSampleSize = calculateInSampleSize(boundsOpts, INPUT_SIZE, INPUT_SIZE);
+            Bitmap src = BitmapFactory.decodeFile(imagePath, decodeOpts);
             if (src == null) {
                 promise.resolve(Arguments.createArray());
                 return;
             }
+
+            // ✅ Track original dimensions — bounding boxes must map to original image space
+            // because JS uses photo.width/photo.height from takePhoto() for cropping
+            int origW = boundsOpts.outWidth;
+            int origH = boundsOpts.outHeight;
 
             LetterboxResult lb = letterbox(src);
             if (lb == null) {
@@ -89,8 +108,13 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
             float[][][] output = new float[1][5][numBoxes];
             interpreter.run(input, output);
 
-            // ✅ Use passed-in threshold instead of hardcoded constant
-            WritableArray faces = parseOutput(output, src.getWidth(), src.getHeight(), lb, confThreshold);
+            // ✅ Scale factor from downsampled → original image space
+            float downsampleRatio = (float) origW / src.getWidth();
+
+            // ✅ Use DOWNSAMPLED dims for de-letterboxing (matches letterbox scale),
+            // then multiply by downsampleRatio to get original image coords
+            WritableArray faces = parseOutput(output, src.getWidth(), src.getHeight(),
+                    lb, confThreshold, downsampleRatio);
             src.recycle();
             promise.resolve(faces);
 
@@ -174,8 +198,12 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
     }
 
     private WritableArray parseOutput(
-            float[][][] output, int origW, int origH,
-            LetterboxResult lb, float confThreshold) {
+            float[][][] output, int downW, int downH,
+            LetterboxResult lb, float confThreshold, float downsampleRatio) {
+
+        // ✅ Original image dimensions (for clamping after upscaling)
+        int origW = Math.round(downW * downsampleRatio);
+        int origH = Math.round(downH * downsampleRatio);
 
         List<FaceResult> validFaces = new ArrayList<>();
         int boxes = output[0][0].length;
@@ -188,7 +216,8 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
                     + " w_raw=" + output[0][2][0]
                     + " h_raw=" + output[0][3][0]
                     + " conf=" + output[0][4][0]);
-            Log.d(TAG, "Total boxes to scan: " + boxes);
+            Log.d(TAG, "Total boxes to scan: " + boxes
+                    + " | downsampleRatio=" + String.format("%.2f", downsampleRatio));
         }
 
         for (int i = 0; i < boxes; i++) {
@@ -196,24 +225,25 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
             if (conf < confThreshold)
                 continue;
 
-            // ✅ RESTORED: multiply by INPUT_SIZE — model outputs normalized coords (0–1)
+            // ✅ Multiply by INPUT_SIZE — model outputs normalized coords (0–1)
             float cx = output[0][0][i] * INPUT_SIZE;
             float cy = output[0][1][i] * INPUT_SIZE;
             float bw = output[0][2][i] * INPUT_SIZE;
             float bh = output[0][3][i] * INPUT_SIZE;
 
-            // Map from letterbox space → original image space
+            // Map from letterbox space → downsampled image space
             float x = (cx - bw / 2f - lb.padX) / lb.scale;
             float y = (cy - bh / 2f - lb.padY) / lb.scale;
             float width = bw / lb.scale;
             float height = bh / lb.scale;
 
-            int x1 = Math.round(x);
-            int y1 = Math.round(y);
-            int x2 = x1 + Math.round(width);
-            int y2 = y1 + Math.round(height);
+            // ✅ Scale from downsampled → original image coordinates
+            int x1 = Math.round(x * downsampleRatio);
+            int y1 = Math.round(y * downsampleRatio);
+            int x2 = x1 + Math.round(width * downsampleRatio);
+            int y2 = y1 + Math.round(height * downsampleRatio);
 
-            // Clamp to image bounds
+            // Clamp to original image bounds
             x1 = Math.max(0, x1);
             y1 = Math.max(0, y1);
             x2 = Math.min(origW, x2);
@@ -295,5 +325,24 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
         float interArea = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
         float unionArea = a.area() + b.area() - interArea;
         return interArea / unionArea;
+    }
+
+    // ✅ Standard Android inSampleSize calculation — reduces memory for high-res
+    // camera photos
+    private static int calculateInSampleSize(BitmapFactory.Options options, int reqW, int reqH) {
+        final int h = options.outHeight;
+        final int w = options.outWidth;
+        int inSampleSize = 1;
+
+        if (h > reqH || w > reqW) {
+            final int halfH = h / 2;
+            final int halfW = w / 2;
+
+            // Largest power-of-2 that keeps both dimensions >= target
+            while ((halfH / inSampleSize) >= reqH && (halfW / inSampleSize) >= reqW) {
+                inSampleSize *= 2;
+            }
+        }
+        return inSampleSize;
     }
 }

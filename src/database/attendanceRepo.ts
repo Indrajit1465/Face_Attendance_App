@@ -1,4 +1,5 @@
 import { getDB } from './db';
+import Logger from '../utils/Logger';
 
 // ─────────────────────────────────────────────────────
 // Helper: local time ISO string (no UTC offset confusion)
@@ -21,11 +22,11 @@ export const markAttendance = async (
 
     // ✅ Input validation — guards against FK violation & NOT NULL DB errors
     if (!empId || typeof empId !== 'string' || empId.trim() === '') {
-        console.warn('[attendanceRepo] markAttendance called with empty empId');
+        Logger.warn('attendanceRepo', 'markAttendance called with empty empId');
         return 'error';
     }
     if (!name || typeof name !== 'string' || name.trim() === '') {
-        console.warn('[attendanceRepo] markAttendance called with empty name');
+        Logger.warn('attendanceRepo', 'markAttendance called with empty name');
         return 'error';
     }
 
@@ -36,8 +37,9 @@ export const markAttendance = async (
         const nowStr = toLocalISOString(now); // ✅ Local time, not UTC
 
         // Look for an open session for this employee
+        // ✅ Select only needed columns — no SELECT *
         const result = db.execute(
-            `SELECT * FROM attendance
+            `SELECT id, check_in FROM attendance
              WHERE emp_id = ?
              AND check_out IS NULL
              ORDER BY id DESC
@@ -51,7 +53,7 @@ export const markAttendance = async (
             // ✅ Null-guard on row before accessing properties
             const row = rows.item(0);
             if (!row || !row.check_in || row.id == null) {
-                console.warn(`[attendanceRepo] Open session row is invalid for ${empId}`);
+                Logger.warn('attendanceRepo', `Open session row is invalid for ${empId}`);
                 return 'error';
             }
 
@@ -59,7 +61,7 @@ export const markAttendance = async (
 
             // Validate check_in was parseable
             if (isNaN(checkInTime.getTime())) {
-                console.warn(`[attendanceRepo] Unparseable check_in for ${empId}: ${row.check_in}`);
+                Logger.warn('attendanceRepo', `Unparseable check_in for ${empId}: ${row.check_in}`);
                 return 'error';
             }
 
@@ -68,7 +70,7 @@ export const markAttendance = async (
 
             // ✅ Too soon — ignore (prevents double-tap attendance)
             if (diffMins < 5) {
-                console.log(`[attendanceRepo] Ignored: too soon (${diffMins}m < 5m) for ${name}`);
+                Logger.debug('attendanceRepo', `Ignored: too soon (${diffMins}m < 5m) for ${name}`);
                 return 'ignored';
             }
 
@@ -82,7 +84,7 @@ export const markAttendance = async (
                 [nowStr, durationSeconds, row.id]
             );
 
-            console.log(`[attendanceRepo] Check-OUT: ${name} | duration: ${durationSeconds}s`);
+            Logger.info('attendanceRepo', `Check-OUT: ${name} | duration: ${durationSeconds}s`);
             return 'checkout';
 
         } else {
@@ -93,13 +95,13 @@ export const markAttendance = async (
                 [empId, name, nowStr]
             );
 
-            console.log(`[attendanceRepo] Check-IN: ${name} at ${nowStr}`);
+            Logger.info('attendanceRepo', `Check-IN: ${name} at ${nowStr}`);
             return 'checkin';
         }
 
     } catch (err) {
         // ✅ Catch DB errors — return 'error' instead of crashing scan loop
-        console.error(`[attendanceRepo] markAttendance error for ${empId}:`, err);
+        Logger.error('attendanceRepo', `markAttendance error for ${empId}:`, err);
         return 'error';
     }
 };

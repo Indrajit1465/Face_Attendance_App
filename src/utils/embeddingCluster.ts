@@ -1,5 +1,6 @@
 import { l2Normalize } from './normalizeEmbedding';
 import { cosineSimilarity } from './cosineSimilarity';
+import Logger from './Logger';
 
 export type Centroid = {
     id: number;       // cluster index
@@ -45,7 +46,7 @@ export const buildClusterIndex = (
     }
 
     const K = optimalK(n);
-    console.log(`[clusterIndex] Building K=${K} clusters for ${n} employees`);
+    Logger.debug('clusterIndex', `Building K=${K} clusters for ${n} employees`);
 
     // ── Initialize centroids with K-Means++ seeding ──────────
     const centroids: number[][] = kMeansPlusPlusInit(
@@ -71,7 +72,7 @@ export const buildClusterIndex = (
         const changed = newAssignments.some((a, i) => a !== assignments[i]);
         assignments = newAssignments;
         if (!changed) {
-            console.log(`[clusterIndex] Converged at iteration ${iter + 1}`);
+            Logger.debug('clusterIndex', `Converged at iteration ${iter + 1}`);
             break;
         }
 
@@ -105,9 +106,9 @@ export const buildClusterIndex = (
         }
     }
 
-    console.log(`[clusterIndex] Built ${result.length} clusters:`);
+    Logger.debug('clusterIndex', `Built ${result.length} clusters:`);
     result.forEach(c =>
-        console.log(`  Cluster ${c.id}: ${c.memberIds.length} members`)
+        Logger.debug('clusterIndex', `  Cluster ${c.id}: ${c.memberIds.length} members`)
     );
 
     return { centroids: result, builtAt: Date.now(), empCount: n };

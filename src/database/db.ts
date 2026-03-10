@@ -1,4 +1,5 @@
 import { open, QuickSQLiteConnection } from 'react-native-quick-sqlite';
+import Logger from '../utils/Logger';
 
 let db: QuickSQLiteConnection | null = null;
 
@@ -74,7 +75,17 @@ export const initDB = (): QuickSQLiteConnection => {
         ON attendance (check_in);
     `);
 
-  console.log('[DB] Schema initialized ✅');
+  // ─────────────────────────────────────────
+  // Admin config (PIN storage)
+  // ─────────────────────────────────────────
+  database.execute(`
+        CREATE TABLE IF NOT EXISTS admin_config (
+            key   TEXT PRIMARY KEY NOT NULL,
+            value TEXT NOT NULL
+        );
+    `);
+
+  Logger.info('DB', 'Schema initialized ✅');
   return database;
 };
 
@@ -85,6 +96,6 @@ export const closeDB = (): void => {
   if (db) {
     db.close();
     db = null;
-    console.log('[DB] Connection closed');
+    Logger.debug('DB', 'Connection closed');
   }
 };

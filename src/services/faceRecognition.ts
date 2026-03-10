@@ -1,5 +1,6 @@
 import { NativeModules } from 'react-native';
 import { l2Normalize } from '../utils/normalizeEmbedding';
+import Logger from '../utils/Logger';
 
 const { FaceRecognition } = NativeModules;
 
@@ -9,7 +10,7 @@ export const getEmbedding = async (imagePath: string): Promise<number[] | null> 
 
         // Guard: native module returned nothing
         if (!raw || !Array.isArray(raw) || raw.length === 0) {
-            console.warn('[getEmbedding] Native module returned empty/null');
+            Logger.warn('getEmbedding', 'Native module returned empty/null');
             return null;
         }
 
@@ -19,14 +20,14 @@ export const getEmbedding = async (imagePath: string): Promise<number[] | null> 
         // Re-validate normalization on JS side (defense in depth)
         const normalized = l2Normalize(embedding);
         if (!normalized) {
-            console.warn('[getEmbedding] L2 normalization failed on JS side');
+            Logger.warn('getEmbedding', 'L2 normalization failed on JS side');
             return null;
         }
 
         return normalized;
 
     } catch (err) {
-        console.warn('[getEmbedding] Native call failed:', err);
+        Logger.warn('getEmbedding', 'Native call failed:', err);
         return null;
     }
 };
