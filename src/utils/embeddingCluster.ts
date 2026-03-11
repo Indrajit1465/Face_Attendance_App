@@ -12,6 +12,7 @@ export type ClusterIndex = {
     centroids: Centroid[];
     builtAt: number;       // timestamp
     empCount: number;
+    empHash: string;       // ✅ H1 FIX: sorted emp_id hash for swap detection
 };
 
 // ─────────────────────────────────────────────────────
@@ -20,6 +21,10 @@ export type ClusterIndex = {
 // ─────────────────────────────────────────────────────
 const optimalK = (n: number): number =>
     Math.min(20, Math.max(1, Math.round(Math.sqrt(n))));
+
+// ✅ H1 FIX: Content hash — detects employee swap even when count stays the same
+export const computeEmployeeHash = (employees: { emp_id: string }[]): string =>
+    employees.map(e => e.emp_id).sort().join(',');
 
 // ─────────────────────────────────────────────────────
 // K-Means Clustering
@@ -31,7 +36,7 @@ export const buildClusterIndex = (
     const n = employees.length;
 
     if (n === 0) {
-        return { centroids: [], builtAt: Date.now(), empCount: 0 };
+        return { centroids: [], builtAt: Date.now(), empCount: 0, empHash: '' };
     }
 
     // ✅ For small employee counts, single cluster is optimal
@@ -42,6 +47,7 @@ export const buildClusterIndex = (
             centroids: [{ id: 0, embedding: mean!, memberIds: allIds }],
             builtAt: Date.now(),
             empCount: n,
+            empHash: computeEmployeeHash(employees),
         };
     }
 
@@ -111,7 +117,7 @@ export const buildClusterIndex = (
         Logger.debug('clusterIndex', `  Cluster ${c.id}: ${c.memberIds.length} members`)
     );
 
-    return { centroids: result, builtAt: Date.now(), empCount: n };
+    return { centroids: result, builtAt: Date.now(), empCount: n, empHash: computeEmployeeHash(employees) };
 };
 
 // ─────────────────────────────────────────────────────

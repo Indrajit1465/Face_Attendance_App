@@ -88,14 +88,16 @@ public class FaceRecognitionModule extends ReactContextBaseJavaModule {
         return "FaceRecognition";
     }
 
+    // ✅ I1 FIX: try-with-resources ensures InputStream is always closed
     private MappedByteBuffer loadModelFile(String modelName) throws IOException {
         AssetFileDescriptor fileDescriptor = getReactApplicationContext().getAssets().openFd(modelName);
-        FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
-        FileChannel fileChannel = inputStream.getChannel();
-        return fileChannel.map(
-                FileChannel.MapMode.READ_ONLY,
-                fileDescriptor.getStartOffset(),
-                fileDescriptor.getDeclaredLength());
+        try (FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor())) {
+            FileChannel fileChannel = inputStream.getChannel();
+            return fileChannel.map(
+                    FileChannel.MapMode.READ_ONLY,
+                    fileDescriptor.getStartOffset(),
+                    fileDescriptor.getDeclaredLength());
+        }
     }
 
     @ReactMethod

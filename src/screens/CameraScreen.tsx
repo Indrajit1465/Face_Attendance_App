@@ -19,11 +19,23 @@ const EXPECTED_EMBEDDING_SIZE = 192;
 const MIN_BOX_SIZE = 120;
 const MIN_BOX_SIZE_REG = 80;   // softer for registration
 
+// ✅ M5 FIX: Detection confidence thresholds.
+// Attendance uses 0.75 (strict — only high-confidence detections proceed to matching).
+// Registration intentionally uses 0.65 (lower) to capture more angles, expressions,
+// and lighting conditions during multi-shot capture. This builds a more robust
+// multi-template set. The tradeoff: slightly noisier detections at registration time,
+// but the pairwise stability check (MIN_PAIRWISE_SIM) filters out bad frames.
+const DETECTION_CONF_ATTENDANCE = 0.75;
+const DETECTION_CONF_REGISTRATION = 0.65;
+
 // ✅ Scan timing constants
 const SCAN_INTERVAL_FAST = 100;  // ms — when face already confirmed (stay responsive)
 const SCAN_INTERVAL_NORMAL = 300;  // ms — normal scanning
 const SCAN_INTERVAL_SLOW = 600;  // ms — after match confirmed (cooldown)
 const MIN_SCAN_INTERVAL = 50;    // ✅ Floor — prevents tight-loop CPU starvation
+
+// ✅ H2 FIX: Minimum average score for voting confirmation
+const AVG_SCORE_THRESHOLD = 0.80;
 
 const SESSION_TIMEOUT_MS = 10 * 60 * 1000;          // 10 minutes
 const SESSION_WARNING_MS = SESSION_TIMEOUT_MS - 30000; // Warning at 9:30
@@ -56,7 +68,8 @@ const CameraScreen = ({ route, navigation }: any) => {
     const sessionWarningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const popupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const recognitionBuffer = useRef<Array<'unknown' | { name: string; id: string }>>([]);
+    // ✅ H2 FIX: Buffer now stores scores for average-score filtering
+    const recognitionBuffer = useRef<Array<'unknown' | { name: string; id: string; score: number }>>([]);
     const lastRecognizedUser = useRef<string | null>(null);
     const lastRecognizedTime = useRef<number>(0);
     const nullStreak = useRef<number>(0);
@@ -142,7 +155,7 @@ const CameraScreen = ({ route, navigation }: any) => {
                 } as any);
                 const photoUri = normalizePhotoPath(photo.path);
 
-                const faces = await detectFaces(photoUri, 0.50);
+                const faces = await detectFaces(photoUri, DETECTION_CONF_REGISTRATION);
                 const bestFace = selectBestFace(faces || [], MIN_BOX_SIZE_REG);
 
                 if (!bestFace) {
@@ -200,13 +213,20 @@ const CameraScreen = ({ route, navigation }: any) => {
                 return;
             }
 
-            const finalEmb = averageEmbedding(embeddings);
-            if (!finalEmb) {
-                Alert.alert('Error', 'Could not compute face template.');
-                return;
+            // ✅ H3 FIX: Multi-template storage — store all valid embeddings as array.
+            // attendanceService.ts already handles Array.isArray(emp.embedding[0]) for multi-template matching.
+            // Fallback to averaged embedding if fewer than 3 valid samples (defensive).
+            if (embeddings.length >= 3) {
+                Logger.debug('CameraScreen', `Multi-template registration: ${embeddings.length} embeddings`);
+                navigation.navigate('Register', { embedding: embeddings });
+            } else {
+                const finalEmb = averageEmbedding(embeddings);
+                if (!finalEmb) {
+                    Alert.alert('Error', 'Could not compute face template.');
+                    return;
+                }
+                navigation.navigate('Register', { embedding: finalEmb });
             }
-
-            navigation.navigate('Register', { embedding: finalEmb });
 
         } catch (err: any) {
             Logger.error('CameraScreen', 'Registration error:', err);
@@ -240,6 +260,13 @@ const CameraScreen = ({ route, navigation }: any) => {
 
     const scheduleNextScan = (intervalMs: number) => {
         if (!isScanningRef.current || !isMountedRef.current) return;
+
+        // ✅ M6 FIX: Prune stale entries from recentScans
+        const now = Date.now();
+        for (const [name, ts] of recentScans.current.entries()) {
+            if (now - ts > 60000) recentScans.current.delete(name);
+        }
+
         // ✅ Floor at MIN_SCAN_INTERVAL to prevent tight-loop CPU starvation
         const safeInterval = Math.max(MIN_SCAN_INTERVAL, intervalMs);
         scanTimerRef.current = setTimeout(captureAndProcess, safeInterval);
@@ -250,6 +277,8 @@ const CameraScreen = ({ route, navigation }: any) => {
 
         const frameStart = Date.now();
         let photoUri: string | null = null;
+        // ✅ C5 FIX: Use flag to track if confirmed match needs cooldown
+        let useSlowInterval = false;
 
         try {
             // ─────────────────────────────────────
@@ -265,7 +294,7 @@ const CameraScreen = ({ route, navigation }: any) => {
             // ─────────────────────────────────────
             // Step 2: Detect faces
             // ─────────────────────────────────────
-            const faces = await detectFaces(photoUri, 0.75);
+            const faces = await detectFaces(photoUri, DETECTION_CONF_ATTENDANCE);
 
             if (!faces || faces.length === 0) {
                 setDetectedFaces([]);
@@ -280,8 +309,7 @@ const CameraScreen = ({ route, navigation }: any) => {
                     }
                 }
 
-                scheduleNextScan(SCAN_INTERVAL_NORMAL);
-                return;
+                return; // ✅ C5: scheduling handled in finally
             }
 
             // ✅ Face detected — reset no-face streak
@@ -303,8 +331,7 @@ const CameraScreen = ({ route, navigation }: any) => {
             const bestFace = selectBestFace(faces, MIN_BOX_SIZE);
             if (!bestFace) {
                 setDetectedFaces([]);
-                scheduleNextScan(SCAN_INTERVAL_NORMAL);
-                return;
+                return; // ✅ C5: scheduling handled in finally
             }
 
             // ─────────────────────────────────────
@@ -332,8 +359,7 @@ const CameraScreen = ({ route, navigation }: any) => {
                 { width: photo.width, height: photo.height }
             );
             if (!croppedUri) {
-                scheduleNextScan(SCAN_INTERVAL_NORMAL);
-                return;
+                return; // ✅ C5: scheduling handled in finally
             }
 
             const embedding = await getEmbedding(croppedUri.replace('file://', ''));
@@ -343,8 +369,7 @@ const CameraScreen = ({ route, navigation }: any) => {
 
             if (!embedding || embedding.length !== EXPECTED_EMBEDDING_SIZE) {
                 recognitionBuffer.current.push('unknown');
-                scheduleNextScan(SCAN_INTERVAL_NORMAL);
-                return;
+                return; // ✅ C5: scheduling handled in finally
             }
 
             // ─────────────────────────────────────
@@ -361,10 +386,10 @@ const CameraScreen = ({ route, navigation }: any) => {
             if (recognitionBuffer.current.length > 5) recognitionBuffer.current.shift();
 
             // ─────────────────────────────────────
-            // Step 7: Evaluate buffer (3-of-5 voting)
+            // Step 7: Evaluate buffer (3-of-5 voting + avg score check)
             // ─────────────────────────────────────
             const buf = recognitionBuffer.current;
-            const userCounts = new Map<string, { id: string; count: number }>();
+            const userCounts = new Map<string, { id: string; count: number; totalScore: number }>();
 
             buf.forEach(item => {
                 if (item !== 'unknown') {
@@ -372,6 +397,7 @@ const CameraScreen = ({ route, navigation }: any) => {
                     userCounts.set(item.name, {
                         id: item.id,
                         count: (existing?.count || 0) + 1,
+                        totalScore: (existing?.totalScore || 0) + item.score,
                     });
                 }
             });
@@ -379,8 +405,14 @@ const CameraScreen = ({ route, navigation }: any) => {
             let confirmedUser: { name: string; id: string } | null = null;
             for (const [name, data] of userCounts.entries()) {
                 if (data.count >= 3) {
-                    confirmedUser = { name, id: data.id };
-                    break;
+                    // ✅ H2 FIX: Check average score exceeds threshold before confirming
+                    const avgScore = data.totalScore / data.count;
+                    if (avgScore >= AVG_SCORE_THRESHOLD) {
+                        confirmedUser = { name, id: data.id };
+                        break;
+                    } else {
+                        Logger.debug('CameraScreen', `${name} has ${data.count} votes but avg score ${avgScore.toFixed(3)} < ${AVG_SCORE_THRESHOLD} — not confirming`);
+                    }
                 }
             }
 
@@ -421,10 +453,8 @@ const CameraScreen = ({ route, navigation }: any) => {
 
                 recognitionBuffer.current = [];
 
-                // ✅ After confirmed match — slow down briefly (cooldown)
-                lastProcessingMs.current = Date.now() - frameStart;
-                scheduleNextScan(SCAN_INTERVAL_SLOW);
-                return;
+                // ✅ After confirmed match — use slow interval (cooldown)
+                useSlowInterval = true;
 
             } else {
                 // ✅ Only increment nullStreak outside protection window
@@ -452,21 +482,25 @@ const CameraScreen = ({ route, navigation }: any) => {
             if (photoUri) {
                 await cleanupTempFile(photoUri);
             }
+
+            // ✅ C5 FIX: Adaptive scan interval — ALWAYS runs regardless of which branch was taken
+            const elapsed = Date.now() - frameStart;
+            lastProcessingMs.current = elapsed;
+
+            let nextInterval: number;
+            if (useSlowInterval) {
+                nextInterval = SCAN_INTERVAL_SLOW;
+            } else if (elapsed < 150) {
+                nextInterval = SCAN_INTERVAL_FAST;
+            } else if (elapsed < 400) {
+                nextInterval = SCAN_INTERVAL_NORMAL;
+            } else {
+                nextInterval = MIN_SCAN_INTERVAL;
+            }
+
+            Logger.debug('CameraScreen', `Frame took ${elapsed}ms → next scan in ${nextInterval}ms`);
+            scheduleNextScan(nextInterval);
         }
-
-        // ─────────────────────────────────────
-        // ✅ Adaptive interval — based on actual processing time
-        // ─────────────────────────────────────
-        const elapsed = Date.now() - frameStart;
-        lastProcessingMs.current = elapsed;
-
-        let nextInterval: number;
-        if (elapsed < 150) nextInterval = SCAN_INTERVAL_FAST;
-        else if (elapsed < 400) nextInterval = SCAN_INTERVAL_NORMAL;
-        else nextInterval = MIN_SCAN_INTERVAL;  // ✅ was 0 — now uses floor to prevent tight loop
-
-        Logger.debug('CameraScreen', `Frame took ${elapsed}ms → next scan in ${nextInterval}ms`);
-        scheduleNextScan(nextInterval);
     };
 
     const startScanning = () => {
@@ -482,8 +516,8 @@ const CameraScreen = ({ route, navigation }: any) => {
         setSessionWarning(false);
         recentScans.current.clear();
 
-        // ✅ Warm up the index before scanning starts
-        invalidateEmployeeCache();
+        // ✅ H5 FIX: Cache is TTL-managed (CACHE_TTL_MS=30s). Do not invalidate here —
+        // only invalidate on employee data mutations (add/edit/delete).
 
         // ✅ Session timeout — navigate to Home after 10 minutes
         sessionTimerRef.current = setTimeout(() => {
@@ -548,6 +582,10 @@ const CameraScreen = ({ route, navigation }: any) => {
                 const scaledW = face.width * scaleX;
                 const scaledH = face.height * scaleY;
                 let leftPos = face.x * scaleX;
+                // ✅ I3 NOTE: Vision Camera's takePhoto() returns un-mirrored photos
+                // even on front camera. YOLO detection coords are therefore NOT mirrored.
+                // This mirror flip is UI-ONLY — to align the bounding box overlay with
+                // the camera preview, which IS mirrored for front-facing UX.
                 if (isFrontCam) leftPos = viewDimensions.width - (leftPos + scaledW);
 
                 return (

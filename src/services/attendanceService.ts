@@ -4,16 +4,17 @@ import { getAllEmployees, Employee } from '../database/employeeRepo';
 import {
     buildClusterIndex,
     findNearestClusters,
-    ClusterIndex
+    ClusterIndex,
+    computeEmployeeHash,
 } from '../utils/embeddingCluster';
 import { saveClusterIndex, loadClusterIndex } from '../database/clusterRepo';
 
-// ─── REPLACE the constants block at the top: ───────────────
+// ─── Recognition constants ───────────────
 
 const SIMILARITY_THRESHOLD = 0.75;   // ✅ was 0.78 — catches valid matches being missed
-const EARLY_EXIT_THRESHOLD = 0.95;   // unchanged
-const DEBUG_RECOGNITION = true;   // unchanged
-const CACHE_TTL_MS = 30000;  // unchanged
+const EARLY_EXIT_THRESHOLD = 0.95;
+const CACHE_TTL_MS = 30000;          // 30 seconds
+const CURRENT_MODEL_VERSION = 'v1';  // ✅ M2: Tracks embedding model version
 
 // ✅ NEW — replaces fixed MARGIN_THRESHOLD = 0.10
 const getDynamicMargin = (employeeCount: number): number => {
@@ -69,15 +70,18 @@ const initializeIndex = async (): Promise<void> => {
         }
 
         if (employees.length === 0) {
-            clusterIndex = { centroids: [], builtAt: now, empCount: 0 };
+            clusterIndex = { centroids: [], builtAt: now, empCount: 0, empHash: '' };
             cacheLoadedAt = now;
             return;
         }
 
+        // ✅ H1 FIX: Use content hash instead of count to detect employee swap
+        const currentHash = computeEmployeeHash(employees);
+
         const saved = loadClusterIndex();
         if (
             saved &&
-            saved.empCount === employees.length &&
+            saved.empHash === currentHash &&
             (now - saved.builtAt) < 5 * 60 * 1000
         ) {
             clusterIndex = saved;
@@ -106,7 +110,7 @@ const initializeIndex = async (): Promise<void> => {
     } catch (err) {
         Logger.error('attendanceService', 'Index build failed:', err);
         employeeCache = employeeCache ?? [];
-        clusterIndex = clusterIndex ?? { centroids: [], builtAt: 0, empCount: 0 };
+        clusterIndex = clusterIndex ?? { centroids: [], builtAt: 0, empCount: 0, empHash: '' };
     }
 };
 
@@ -166,6 +170,7 @@ export const processMultiAttendance = async (
 
                 let empBestScore = 0;
                 for (const storedEmb of storedEmbeddings) {
+                    // ✅ C4 FIX: preNormalized: true — embeddings are L2-normalized before entry into both paths
                     const score = cosineSimilarity(normalizedLive, storedEmb, true);
                     if (score !== null && score > empBestScore) empBestScore = score;
                 }
@@ -190,7 +195,8 @@ export const processMultiAttendance = async (
 
                 let empBestScore = 0;
                 for (const storedEmb of storedEmbeddings) {
-                    const score = cosineSimilarity(normalizedLive, storedEmb);
+                    // ✅ C4 FIX: preNormalized: true — embeddings are L2-normalized before entry into both paths
+                    const score = cosineSimilarity(normalizedLive, storedEmb, true);
                     if (score !== null && score > empBestScore) empBestScore = score;
                 }
 

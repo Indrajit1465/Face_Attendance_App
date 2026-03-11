@@ -8,7 +8,7 @@ const EXPECTED_EMBEDDING_SIZE = 192;
 export type Employee = {
     emp_id: string;
     name: string;
-    embedding: number[];
+    embedding: number[] | number[][];  // ✅ H3: supports single-vector or multi-template
 };
 
 // ─────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ export type Employee = {
  * - All values are finite (no NaN, Infinity)
  * - Has non-zero norm (not a blank/bad frame)
  */
-const validateEmbedding = (embedding: any, context: string): boolean => {
+const validateSingleEmbedding = (embedding: any, context: string): boolean => {
     if (!Array.isArray(embedding)) {
         Logger.warn('employeeRepo', `${context}: embedding is not an array`);
         return false;
@@ -55,6 +55,31 @@ const validateEmbedding = (embedding: any, context: string): boolean => {
     return true;
 };
 
+/**
+ * ✅ H3 FIX: Validates both single-vector (number[]) and multi-template (number[][]).
+ * Multi-template: validates each inner embedding independently.
+ */
+const validateEmbedding = (embedding: any, context: string): boolean => {
+    if (!Array.isArray(embedding) || embedding.length === 0) {
+        Logger.warn('employeeRepo', `${context}: embedding is not an array or is empty`);
+        return false;
+    }
+
+    // Multi-template: array of arrays
+    if (Array.isArray(embedding[0])) {
+        for (let i = 0; i < embedding.length; i++) {
+            if (!validateSingleEmbedding(embedding[i], `${context}[${i}]`)) {
+                return false;
+            }
+        }
+        Logger.debug('employeeRepo', `${context}: validated multi-template with ${embedding.length} embeddings`);
+        return true;
+    }
+
+    // Single-vector
+    return validateSingleEmbedding(embedding, context);
+};
+
 // ─────────────────────────────────────────────────────
 // Insert Employee
 // ─────────────────────────────────────────────────────
@@ -62,7 +87,7 @@ const validateEmbedding = (embedding: any, context: string): boolean => {
 export const insertEmployee = (
     empId: string,
     name: string,
-    embedding: number[]
+    embedding: number[] | number[][]  // ✅ H3: accepts single-vector or multi-template
 ): void => {
     // ✅ Validate embedding BEFORE storing — prevent poisoned templates
     if (!validateEmbedding(embedding, `insertEmployee(${name})`)) {
@@ -81,12 +106,18 @@ export const insertEmployee = (
         throw new Error('EMPLOYEE_EXISTS');
     }
 
+    const serialized = JSON.stringify(embedding);
     db.execute(
         `INSERT INTO employees (emp_id, name, embedding) VALUES (?, ?, ?)`,
-        [empId, name, JSON.stringify(embedding)]
+        [empId, name, serialized]
     );
 
-    Logger.info('employeeRepo', `Registered employee: ${name} (${empId}), embedding size: ${embedding.length}`);
+    const isMulti = Array.isArray(embedding[0]);
+    const embCount = isMulti ? (embedding as number[][]).length : 1;
+    Logger.info('employeeRepo',
+        `Registered employee: ${name} (${empId}), ` +
+        `templates: ${embCount}, isMulti: ${isMulti}, ` +
+        `serialized size: ${serialized.length} bytes`);
 };
 
 // ─────────────────────────────────────────────────────
@@ -95,8 +126,9 @@ export const insertEmployee = (
 
 export const getAllEmployees = async (): Promise<Employee[]> => {
     // ✅ async — consistent with attendanceService.ts await call
+    // ✅ M1 FIX: Explicit column list instead of SELECT *
     const db = getDB();
-    const result = db.execute(`SELECT * FROM employees`);
+    const result = db.execute(`SELECT emp_id, name, embedding FROM employees`);
 
     const employees: Employee[] = [];
 

@@ -25,7 +25,13 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
     private static final int INPUT_SIZE = 640; // ✅ matches YOLOv8n-face model input
     private static final float CONF_THRESHOLD = 0.75f; // ✅ was 0.25f
     private static final int MIN_BOX_SIZE = 120; // ✅ was 80
-    private static final float PAD_FACTOR = 0.20f; // ✅ NEW: 20% padding around face
+    private static final float PAD_FACTOR = 0.20f; // ✅ 20% padding around face
+
+    // ✅ C3 FIX: Toggle for YOLO output coordinate space.
+    // If true  → model outputs normalized coords (0–1), multiply by INPUT_SIZE.
+    // If false → model outputs pixel-space coords (0–640), use raw values.
+    // Check logcat "RAW OUTPUT SAMPLE" to determine which your model uses.
+    private static final boolean YOLO_OUTPUTS_NORMALIZED = true;
 
     private Interpreter interpreter;
 
@@ -225,11 +231,14 @@ public class FaceDetectionModule extends ReactContextBaseJavaModule {
             if (conf < confThreshold)
                 continue;
 
-            // ✅ Multiply by INPUT_SIZE — model outputs normalized coords (0–1)
-            float cx = output[0][0][i] * INPUT_SIZE;
-            float cy = output[0][1][i] * INPUT_SIZE;
-            float bw = output[0][2][i] * INPUT_SIZE;
-            float bh = output[0][3][i] * INPUT_SIZE;
+            // ✅ C3 FIX: Conditional coordinate mapping based on YOLO_OUTPUTS_NORMALIZED.
+            // If normalized (0–1) → multiply by INPUT_SIZE to get pixel coords in letterbox space.
+            // If pixel-space (0–640) → use raw values directly.
+            float scale = YOLO_OUTPUTS_NORMALIZED ? INPUT_SIZE : 1.0f;
+            float cx = output[0][0][i] * scale;
+            float cy = output[0][1][i] * scale;
+            float bw = output[0][2][i] * scale;
+            float bh = output[0][3][i] * scale;
 
             // Map from letterbox space → downsampled image space
             float x = (cx - bw / 2f - lb.padX) / lb.scale;

@@ -13,10 +13,9 @@ type ImageDimensions = {
     height: number;
 };
 
-// 🔧 Tunable constants
-// NOTE: FaceDetectionModule.java already adds 20% padding to the YOLO box.
-// This margin is only a small safety buffer on top of that.
-const FACE_MARGIN = 0.10;            // ✅ was 0.35 — Java already handles main padding
+// ✅ C1 FIX: Padding is handled upstream in FaceDetectionModule.java (PAD_FACTOR=0.20).
+// Do not add additional margin here — double-padding causes embedding drift.
+const FACE_MARGIN = 0.0;
 const MIN_CROP_SIZE = 112;           // ✅ Must be at least as large as MobileFaceNet input
 
 export const cropFaceFromImage = async (

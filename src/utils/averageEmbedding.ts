@@ -1,4 +1,5 @@
 import { l2Normalize } from './normalizeEmbedding';
+import Logger from './Logger';
 
 /**
  * Computes the mean of multiple L2-normalized embeddings,
@@ -63,6 +64,6 @@ export const averageEmbedding = (embeddings: number[][]): number[] | null => {
         return null;
     }
 
-    console.log(`[averageEmbedding] Mean embedding computed from ${embeddings.length} frames, norm validated ✅`);
+    Logger.info('averageEmbedding', `Mean embedding computed from ${embeddings.length} frames, norm validated ✅`);
     return normalized;
 };

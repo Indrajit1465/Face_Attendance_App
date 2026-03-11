@@ -85,6 +85,27 @@ export const initDB = (): QuickSQLiteConnection => {
         );
     `);
 
+  // ─────────────────────────────────────────
+  // ✅ M2 FIX: Model version migration
+  // Add model_version column if it doesn't exist (safe for existing DBs)
+  // ─────────────────────────────────────────
+  try {
+    database.execute(`ALTER TABLE employees ADD COLUMN model_version TEXT NOT NULL DEFAULT 'v1'`);
+    Logger.debug('DB', 'Added model_version column to employees table');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // ✅ M2: Version consistency check
+  try {
+    const versionResult = database.execute(`SELECT DISTINCT model_version FROM employees`);
+    if (versionResult.rows && versionResult.rows.length > 1) {
+      Logger.warn('DB', '⚠️ Mixed embedding versions detected — recognition accuracy may be degraded. Re-register affected employees.');
+    }
+  } catch {
+    // Table might be empty — ignore
+  }
+
   Logger.info('DB', 'Schema initialized ✅');
   return database;
 };

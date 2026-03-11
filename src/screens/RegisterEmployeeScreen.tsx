@@ -30,6 +30,11 @@ const RegisterEmployeeScreen = ({ route, navigation }: any) => {
         );
     }
 
+    // ✅ H3: Detect multi-template vs single-vector for display
+    const isMultiTemplate = Array.isArray(embedding[0]);
+    const templateCount = isMultiTemplate ? embedding.length : 1;
+    const embDimension = isMultiTemplate ? embedding[0].length : embedding.length;
+
     // ─────────────────────────────────────────────
     // Input handlers with real-time validation
     // ─────────────────────────────────────────────
@@ -90,7 +95,13 @@ const RegisterEmployeeScreen = ({ route, navigation }: any) => {
 
         if (!valid) return;
 
-        if (embedding.some((v: any) => typeof v !== 'number' || !isFinite(v))) {
+        // ✅ H3 FIX: Validate embedding — supports both single-vector and multi-template
+        const isMultiTemplate = Array.isArray(embedding[0]);
+        const embeddingsToCheck: number[][] = isMultiTemplate ? embedding : [embedding];
+        const hasInvalid = embeddingsToCheck.some((emb: number[]) =>
+            !Array.isArray(emb) || emb.some((v: number) => typeof v !== 'number' || !isFinite(v))
+        );
+        if (hasInvalid) {
             Alert.alert('Invalid Face Data', 'Please go back and recapture the face.');
             return;
         }
@@ -135,7 +146,7 @@ const RegisterEmployeeScreen = ({ route, navigation }: any) => {
             {/* Face data badge */}
             <View style={styles.embeddingBadge}>
                 <Text style={styles.embeddingBadgeText}>
-                    ✅ Face data ready ({embedding.length}D)
+                    ✅ Face data ready ({templateCount} template{templateCount > 1 ? 's' : ''}, {embDimension}D)
                 </Text>
             </View>
 
